@@ -15,7 +15,7 @@ export default function Reports() {
   
   // State untuk Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const rowsPerPage = 50;
+  const rowsPerPage = 30;
 
   useEffect(() => {
     const fetchReportsData = async () => {
