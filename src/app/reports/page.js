@@ -271,7 +271,7 @@ export default function Reports() {
                       <td className="px-6 py-4 font-bold text-blue-600 border-l border-slate-50">{Number(row.soc).toFixed(0)}</td>
                       <td className="px-6 py-4 font-bold text-emerald-600">{Number(row.soh).toFixed(0)}</td>
 
-                      {/* Cells */}
+                      {/* C  ells */}
                       <td className={`px-3 py-4 border-l border-slate-50 ${row.c1 < 3.0 || row.c1 > 4.2 ? 'text-amber-500 font-bold' : ''}`}>{Number(row.c1).toFixed(2)}</td>
                       <td className={`px-3 py-4 ${row.c2 < 3.0 || row.c2 > 4.2 ? 'text-amber-500 font-bold' : ''}`}>{Number(row.c2).toFixed(2)}</td>
                       <td className={`px-3 py-4 ${row.c3 < 3.0 || row.c3 > 4.2 ? 'text-amber-500 font-bold' : ''}`}>{Number(row.c3).toFixed(2)}</td>
