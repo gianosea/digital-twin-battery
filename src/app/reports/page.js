@@ -5,36 +5,34 @@ import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import * as XLSX from "xlsx"; 
-// Import koneksi Supabase
 import { supabase } from "@/utils/supabase"; 
 
 export default function Reports() {
   const router = useRouter();
 
-  // State untuk menyimpan data laporan dari database
   const [reportsData, setReportsData] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // State untuk Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const rowsPerPage = 50;
 
-  // Fungsi untuk menarik data dari Supabase
   useEffect(() => {
     const fetchReportsData = async () => {
-      // Menarik 100 data terbaru dari database
+      // Menarik 500 data terbaru agar pagination bisa diuji coba (500 data / 50 baris = 10 halaman)
       const { data, error } = await supabase
-        .from('battery_logs') // Pastikan nama tabel benar
+        .from('battery_logs') 
         .select('*')
         .order('timestamp', { ascending: false })
-        .limit(100); 
+        .limit(500); 
 
       if (data && !error) {
-        // Mapping data database ke format yang mudah dibaca tabel UI
         const formattedData = data.map(item => ({
-          // Format tanggal dan waktu ke standar lokal (Indonesia)
           timestamp: new Date(item.timestamp).toLocaleString("id-ID", {
             year: 'numeric', month: '2-digit', day: '2-digit',
             hour: '2-digit', minute: '2-digit', second: '2-digit'
           }),
-          // Fallback ke UBP-KMJ-01 jika battery_id kosong
-          battery_id: item.battery_id || "UBP-KMJ-01", 
+          battery_id: item.battery_id || "PACK_01", 
           current: item.current ?? 0,
           soc: item.soc ?? 0,
           soh: item.soh ?? 0,
@@ -73,11 +71,28 @@ export default function Reports() {
     router.push("/");
   };
 
-  // Fungsi untuk mengekspor data ke Excel (.xlsx) dengan rapi
-  const handleExportExcel = () => {
-    if (reportsData.length === 0) return; // Jangan export jika data kosong
+  // -------------------------------------------------------------
+  // LOGIKA PAGINATION (Memotong data sesuai halaman aktif)
+  // -------------------------------------------------------------
+  const indexOfLastRow = currentPage * rowsPerPage;
+  const indexOfFirstRow = indexOfLastRow - rowsPerPage;
+  // Ini adalah data yang HANYA ditampilkan di layar (max 50 baris)
+  const currentRows = reportsData.slice(indexOfFirstRow, indexOfLastRow);
+  const totalPages = Math.ceil(reportsData.length / rowsPerPage);
 
-    // 1. Format ulang nama kunci (key) agar rapi saat dibaca di Excel
+  const handleNextPage = () => {
+    if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+  };
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) setCurrentPage(currentPage - 1);
+  };
+  // -------------------------------------------------------------
+
+  const handleExportExcel = () => {
+    if (reportsData.length === 0) return; 
+
+    // Ingat: Kita mengekspor seluruh 'reportsData', BUKAN 'currentRows'
     const excelFormattedData = reportsData.map(row => ({
       "Timestamp": row.timestamp,
       "Asset ID": row.battery_id,
@@ -105,38 +120,28 @@ export default function Reports() {
       "Cell 13 (V)": row.c13,
     }));
 
-    // 2. Ubah array JSON menjadi worksheet Excel
     const worksheet = XLSX.utils.json_to_sheet(excelFormattedData);
-    
-    // 3. Buat workbook baru dan masukkan worksheet
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Battery Data");
-    
-    // 4. Simpan dan unduh filenya
     XLSX.writeFile(workbook, "BHERO_13S_Battery_Report.xlsx");
   };
 
   return (
     <div className="flex min-h-screen bg-[#f4f7fe] text-slate-800 font-sans">
       
-      {/* ========================================================= */}
       {/* SIDEBAR NAVIGASI KIRI */}
-      {/* ========================================================= */}
       <aside className="w-64 bg-white flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20 border-r border-slate-100 flex-shrink-0">
-        
         <div className="p-8 flex items-center gap-3">
           <Image src="/logo-bh.png" alt="B-Hero Logo" width={36} height={36} className="object-contain" style={{ width: 'auto', height: 'auto' }} priority />
           <span className="text-2xl font-black tracking-tight text-[#333866]">B-HERO</span>
         </div>
 
         <nav className="flex-1 px-4 flex flex-col gap-2">
-          {/* Dashboard (Inactive) */}
           <Link href="/dashboard" className="flex items-center gap-4 text-slate-400 hover:text-[#333866] hover:bg-slate-50 px-5 py-3.5 rounded-2xl font-semibold transition-all">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" /></svg>
             Dashboard
           </Link>
           
-          {/* Analytic (Inactive) */}
          <Link href="/analytic" className="flex items-center gap-4 text-slate-400 hover:text-[#333866] hover:bg-slate-50 px-5 py-3.5 rounded-2xl font-semibold transition-all">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" />
@@ -145,7 +150,6 @@ export default function Reports() {
             Analytic
           </Link>
 
-          {/* Reports (ACTIVE MENU SEKARANG) */}
           <Link href="/reports" className="flex items-center gap-4 bg-[#333866] text-white px-5 py-3.5 rounded-2xl font-bold transition-all shadow-md shadow-[#333866]/20">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
               <path fillRule="evenodd" d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625ZM7.5 15a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5A.75.75 0 0 1 7.5 15Zm.75 2.25a.75.75 0 0 0 0 1.5H12a.75.75 0 0 0 0-1.5H8.25Z" clipRule="evenodd" />
@@ -168,12 +172,9 @@ export default function Reports() {
         </div>
       </aside>
 
-      {/* ========================================================= */}
       {/* KONTEN UTAMA REPORTS */}
-      {/* ========================================================= */}
       <main className="flex-1 p-8 md:p-10 overflow-hidden flex flex-col">
         
-        {/* Header dan Tombol Export */}
         <header className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-[32px] font-extrabold text-[#333866] tracking-tight">Data Reports</h1>
@@ -192,16 +193,16 @@ export default function Reports() {
           </button>
         </header>
 
-        {/* ========================================================= */}
         {/* TABEL DATA LENGKAP */}
-        {/* ========================================================= */}
         <div className="bg-white rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 flex-1 overflow-hidden flex flex-col">
           
-          <div className="p-6 border-b border-slate-100 bg-slate-50/50">
+          <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
             <h2 className="text-lg font-black text-[#333866]">Data Log Overview</h2>
+            <span className="text-xs font-bold text-slate-400 bg-white px-3 py-1 rounded-full border border-slate-200">
+              {reportsData.length} Total Records
+            </span>
           </div>
 
-          {/* Wrapper Tabel dengan Overflow Scroll */}
           <div className="flex-1 overflow-auto">
             {isLoading ? (
               <div className="w-full h-full flex items-center justify-center text-slate-400 font-semibold">
@@ -210,7 +211,6 @@ export default function Reports() {
             ) : (
               <table className="w-full text-sm text-left whitespace-nowrap">
                 
-                {/* Header Tabel */}
                 <thead className="text-xs text-slate-500 uppercase bg-slate-50 sticky top-0 z-10 shadow-sm font-black">
                   <tr>
                     <th className="px-6 py-4">Timestamp</th>
@@ -221,12 +221,10 @@ export default function Reports() {
                     <th className="px-6 py-4">SoH (%)</th>
                     <th className="px-6 py-4 text-center border-l border-slate-200" colSpan={13}>Cell Voltages (V)</th>
                   </tr>
-                  {/* Sub-header untuk kolom yang di-group */}
                   <tr className="border-b border-slate-200 bg-white">
                     <th className="px-6 py-3"></th>
                     <th className="px-6 py-3"></th>
                     <th className="px-6 py-3"></th>
-                    {/* Temp */}
                     <th className="px-4 py-3 border-l border-slate-200 text-center">R1</th>
                     <th className="px-4 py-3 text-center">R2</th>
                     <th className="px-4 py-3 text-center">R3</th>
@@ -235,7 +233,6 @@ export default function Reports() {
                     <th className="px-4 py-3 text-center">R6</th>
                     <th className="px-6 py-3 border-l border-slate-200"></th>
                     <th className="px-6 py-3"></th>
-                    {/* Voltages */}
                     <th className="px-3 py-3 border-l border-slate-200">1</th>
                     <th className="px-3 py-3">2</th>
                     <th className="px-3 py-3">3</th>
@@ -252,15 +249,14 @@ export default function Reports() {
                   </tr>
                 </thead>
 
-                {/* Isi Tabel */}
                 <tbody className="divide-y divide-slate-100">
-                  {reportsData.map((row, index) => (
+                  {/* PENTING: Map data dari currentRows, bukan reportsData */}
+                  {currentRows.map((row, index) => (
                     <tr key={index} className="hover:bg-[#f8f9fa] transition-colors">
                       <td className="px-6 py-4 font-semibold text-[#333866]">{row.timestamp}</td>
                       <td className="px-6 py-4 font-mono text-slate-500">{row.battery_id}</td>
                       <td className="px-6 py-4 font-bold text-emerald-600">{Number(row.current).toFixed(1)}</td>
                       
-                      {/* Temps */}
                       <td className={`px-4 py-4 text-center border-l border-slate-50 ${row.temp_1 > 40 ? 'text-red-500 font-bold' : ''}`}>{Number(row.temp_1).toFixed(1)}</td>
                       <td className={`px-4 py-4 text-center ${row.temp_2 > 40 ? 'text-red-500 font-bold' : ''}`}>{Number(row.temp_2).toFixed(1)}</td>
                       <td className={`px-4 py-4 text-center ${row.temp_3 > 40 ? 'text-red-500 font-bold' : ''}`}>{Number(row.temp_3).toFixed(1)}</td>
@@ -271,7 +267,6 @@ export default function Reports() {
                       <td className="px-6 py-4 font-bold text-blue-600 border-l border-slate-50">{Number(row.soc).toFixed(0)}</td>
                       <td className="px-6 py-4 font-bold text-emerald-600">{Number(row.soh).toFixed(0)}</td>
 
-                      {/* C  ells */}
                       <td className={`px-3 py-4 border-l border-slate-50 ${row.c1 < 3.0 || row.c1 > 4.2 ? 'text-amber-500 font-bold' : ''}`}>{Number(row.c1).toFixed(2)}</td>
                       <td className={`px-3 py-4 ${row.c2 < 3.0 || row.c2 > 4.2 ? 'text-amber-500 font-bold' : ''}`}>{Number(row.c2).toFixed(2)}</td>
                       <td className={`px-3 py-4 ${row.c3 < 3.0 || row.c3 > 4.2 ? 'text-amber-500 font-bold' : ''}`}>{Number(row.c3).toFixed(2)}</td>
@@ -292,12 +287,38 @@ export default function Reports() {
             )}
           </div>
           
-          <div className="p-4 border-t border-slate-100 text-xs text-slate-400 text-center font-semibold flex justify-between items-center px-8">
-            <span>{isLoading ? 'Loading logs...' : `Showing ${reportsData.length} recent log entries.`}</span>
-            <span>Data synced via Supabase Realtime</span>
+          {/* ========================================================= */}
+          {/* KONTROL PAGINATION (NEXT / PREV) */}
+          {/* ========================================================= */}
+          <div className="p-4 border-t border-slate-100 bg-white flex flex-col sm:flex-row justify-between items-center gap-4 px-8">
+            <span className="text-sm font-semibold text-slate-500">
+              {isLoading ? 'Loading...' : `Showing ${indexOfFirstRow + 1} - ${Math.min(indexOfLastRow, reportsData.length)} of ${reportsData.length} records`}
+            </span>
+            
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={handlePrevPage} 
+                disabled={currentPage === 1 || isLoading}
+                className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-[#333866] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                Previous
+              </button>
+              
+              <span className="px-4 text-sm font-black text-[#333866]">
+                Page {totalPages === 0 ? 0 : currentPage} of {totalPages}
+              </span>
+              
+              <button 
+                onClick={handleNextPage} 
+                disabled={currentPage >= totalPages || isLoading}
+                className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-[#333866] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                Next
+              </button>
+            </div>
           </div>
-        </div>
 
+        </div>
       </main>
     </div>
   );
