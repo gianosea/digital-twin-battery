@@ -275,11 +275,11 @@ export default function Reports() {
                 onChange={handleFilterTypeChange}
                 className="appearance-none bg-white border border-slate-200 text-[#333866] px-5 py-3 pr-10 rounded-2xl font-bold cursor-pointer hover:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all shadow-sm"
               >
-                <option value="all">500 Data Terbaru</option>
-                <option value="today">Hari Ini</option>
-                <option value="week">7 Hari Terakhir</option>
-                <option value="specific_month">Pilih Bulan Spesifik...</option>
-                <option value="specific_date">Pilih Tanggal Spesifik...</option>
+                <option value="all">Last 500</option>
+                <option value="today">Today</option>
+                <option value="week">Last Week</option>
+                <option value="specific_month">Month</option>
+                <option value="specific_date">Dates</option>
               </select>
               <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
