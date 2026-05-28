@@ -13,25 +13,78 @@ export default function Reports() {
   const [reportsData, setReportsData] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   
+  // ==========================================
+  // STATE UNTUK FILTER WAKTU
+  // ==========================================
+  const [filterType, setFilterType] = useState("all"); 
+  const [customDate, setCustomDate] = useState(""); // Untuk format YYYY-MM-DD
+  const [customMonth, setCustomMonth] = useState(""); // Untuk format YYYY-MM
+
   // State untuk Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 30;
 
   useEffect(() => {
     const fetchReportsData = async () => {
-      // Menarik 500 data terbaru agar pagination bisa diuji coba (500 data / 50 baris = 10 halaman)
-      const { data, error } = await supabase
+      setIsLoading(true);
+      
+      let query = supabase
         .from('battery_logs') 
         .select('*')
         .order('timestamp', { ascending: false })
         .limit(500); 
 
+      // ==========================================
+      // LOGIKA FILTER WAKTU SUPABASE
+      // ==========================================
+      const now = new Date();
+
+      if (filterType === "today") {
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        query = query.gte('timestamp', start.toISOString());
+      } 
+      else if (filterType === "week") {
+        const start = new Date();
+        start.setDate(now.getDate() - 7);
+        query = query.gte('timestamp', start.toISOString());
+      } 
+      else if (filterType === "specific_date" && customDate) {
+        // Filter untuk 1 Hari Penuh (Dari jam 00:00 sampai 23:59)
+        const startOfDay = new Date(customDate);
+        startOfDay.setHours(0, 0, 0, 0);
+        
+        const endOfDay = new Date(customDate);
+        endOfDay.setHours(23, 59, 59, 999);
+
+        query = query
+          .gte('timestamp', startOfDay.toISOString())
+          .lte('timestamp', endOfDay.toISOString());
+      } 
+      else if (filterType === "specific_month" && customMonth) {
+        // Filter untuk 1 Bulan Penuh (Dari tgl 1 sampai tanggal terakhir di bulan itu)
+        const [year, month] = customMonth.split("-");
+        const startOfMonth = new Date(year, month - 1, 1);
+        startOfMonth.setHours(0, 0, 0, 0);
+
+        const endOfMonth = new Date(year, month, 0); // Angka 0 otomatis menunjuk ke hari terakhir bulan sebelumnya
+        endOfMonth.setHours(23, 59, 59, 999);
+
+        query = query
+          .gte('timestamp', startOfMonth.toISOString())
+          .lte('timestamp', endOfMonth.toISOString());
+      }
+
+      // Eksekusi Query ke Database
+      const { data, error } = await query; 
+
       if (data && !error) {
         const formattedData = data.map(item => ({
           timestamp: new Date(item.timestamp).toLocaleString("id-ID", {
+            timeZone: "Asia/Jakarta", 
             year: 'numeric', month: '2-digit', day: '2-digit',
             hour: '2-digit', minute: '2-digit', second: '2-digit'
-          }),
+          }) + " WIB", 
           battery_id: item.battery_id || "PACK_01", 
           current: item.current ?? 0,
           soc: item.soc ?? 0,
@@ -65,18 +118,19 @@ export default function Reports() {
     };
 
     fetchReportsData();
-  }, []);
+  }, [filterType, customDate, customMonth]); // Query akan dieksekusi ulang jika salah satu state ini berubah
 
   const handleLogout = () => {
     router.push("/");
   };
 
-  // -------------------------------------------------------------
-  // LOGIKA PAGINATION (Memotong data sesuai halaman aktif)
-  // -------------------------------------------------------------
+  const handleFilterTypeChange = (e) => {
+    setFilterType(e.target.value);
+    setCurrentPage(1); 
+  };
+
   const indexOfLastRow = currentPage * rowsPerPage;
   const indexOfFirstRow = indexOfLastRow - rowsPerPage;
-  // Ini adalah data yang HANYA ditampilkan di layar (max 50 baris)
   const currentRows = reportsData.slice(indexOfFirstRow, indexOfLastRow);
   const totalPages = Math.ceil(reportsData.length / rowsPerPage);
 
@@ -87,12 +141,10 @@ export default function Reports() {
   const handlePrevPage = () => {
     if (currentPage > 1) setCurrentPage(currentPage - 1);
   };
-  // -------------------------------------------------------------
 
   const handleExportExcel = () => {
     if (reportsData.length === 0) return; 
 
-    // Ingat: Kita mengekspor seluruh 'reportsData', BUKAN 'currentRows'
     const excelFormattedData = reportsData.map(row => ({
       "Timestamp": row.timestamp,
       "Asset ID": row.battery_id,
@@ -123,7 +175,14 @@ export default function Reports() {
     const worksheet = XLSX.utils.json_to_sheet(excelFormattedData);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Battery Data");
-    XLSX.writeFile(workbook, "BHERO_13S_Battery_Report.xlsx");
+    
+    // Penamaan file excel dinamis berdasarkan filter
+    let fileNameStr = "ALL";
+    if (filterType === "specific_date" && customDate) fileNameStr = customDate;
+    else if (filterType === "specific_month" && customMonth) fileNameStr = customMonth;
+    else fileNameStr = filterType.toUpperCase();
+
+    XLSX.writeFile(workbook, `BHERO_13S_Report_${fileNameStr}.xlsx`);
   };
 
   return (
@@ -175,22 +234,69 @@ export default function Reports() {
       {/* KONTEN UTAMA REPORTS */}
       <main className="flex-1 p-8 md:p-10 overflow-hidden flex flex-col">
         
-        <header className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <header className="mb-8 flex flex-col xl:flex-row xl:items-center justify-between gap-6">
           <div>
             <h1 className="text-[32px] font-extrabold text-[#333866] tracking-tight">Data Reports</h1>
             <p className="text-slate-500 font-medium mt-1">Exportable historical logs from your battery parameters.</p>
           </div>
           
-          <button 
-            onClick={handleExportExcel}
-            disabled={isLoading || reportsData.length === 0}
-            className="bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white px-6 py-3 rounded-2xl font-bold transition-all flex items-center gap-3 shadow-md shadow-emerald-500/20"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-            </svg>
-            {isLoading ? 'Loading Data...' : 'Export to Excel'}
-          </button>
+          {/* Kontainer Tombol & Filter */}
+          <div className="flex flex-col sm:flex-row items-center gap-3">
+            
+            {/* Conditional Input TANGGAL/BULAN SPESIFIK */}
+            {filterType === "specific_date" && (
+              <input 
+                type="date" 
+                value={customDate} 
+                onChange={(e) => {
+                  setCustomDate(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="appearance-none bg-white border border-emerald-300 text-[#333866] px-5 py-3 rounded-2xl font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all shadow-sm"
+              />
+            )}
+
+            {filterType === "specific_month" && (
+              <input 
+                type="month" 
+                value={customMonth} 
+                onChange={(e) => {
+                  setCustomMonth(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="appearance-none bg-white border border-emerald-300 text-[#333866] px-5 py-3 rounded-2xl font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all shadow-sm"
+              />
+            )}
+
+            {/* Dropdown Tipe Filter */}
+            <div className="relative">
+              <select 
+                value={filterType}
+                onChange={handleFilterTypeChange}
+                className="appearance-none bg-white border border-slate-200 text-[#333866] px-5 py-3 pr-10 rounded-2xl font-bold cursor-pointer hover:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all shadow-sm"
+              >
+                <option value="all">500 Data Terbaru</option>
+                <option value="today">Hari Ini</option>
+                <option value="week">7 Hari Terakhir</option>
+                <option value="specific_month">Pilih Bulan Spesifik...</option>
+                <option value="specific_date">Pilih Tanggal Spesifik...</option>
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+              </div>
+            </div>
+
+            <button 
+              onClick={handleExportExcel}
+              disabled={isLoading || reportsData.length === 0}
+              className="bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white px-6 py-3 rounded-2xl font-bold transition-all flex items-center gap-3 shadow-md shadow-emerald-500/20 whitespace-nowrap"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              {isLoading ? 'Loading Data...' : 'Export to Excel'}
+            </button>
+          </div>
         </header>
 
         {/* TABEL DATA LENGKAP */}
@@ -205,8 +311,13 @@ export default function Reports() {
 
           <div className="flex-1 overflow-auto">
             {isLoading ? (
-              <div className="w-full h-full flex items-center justify-center text-slate-400 font-semibold">
-                Fetching data from Supabase...
+              <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 font-semibold gap-3">
+                <div className="w-8 h-8 border-4 border-slate-200 border-t-[#333866] rounded-full animate-spin"></div>
+                Fetching filtered data...
+              </div>
+            ) : reportsData.length === 0 ? (
+              <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 font-semibold">
+                No records found for the selected time period.
               </div>
             ) : (
               <table className="w-full text-sm text-left whitespace-nowrap">
@@ -250,7 +361,6 @@ export default function Reports() {
                 </thead>
 
                 <tbody className="divide-y divide-slate-100">
-                  {/* PENTING: Map data dari currentRows, bukan reportsData */}
                   {currentRows.map((row, index) => (
                     <tr key={index} className="hover:bg-[#f8f9fa] transition-colors">
                       <td className="px-6 py-4 font-semibold text-[#333866]">{row.timestamp}</td>
@@ -292,13 +402,13 @@ export default function Reports() {
           {/* ========================================================= */}
           <div className="p-4 border-t border-slate-100 bg-white flex flex-col sm:flex-row justify-between items-center gap-4 px-8">
             <span className="text-sm font-semibold text-slate-500">
-              {isLoading ? 'Loading...' : `Showing ${indexOfFirstRow + 1} - ${Math.min(indexOfLastRow, reportsData.length)} of ${reportsData.length} records`}
+              {isLoading || reportsData.length === 0 ? '' : `Showing ${indexOfFirstRow + 1} - ${Math.min(indexOfLastRow, reportsData.length)} of ${reportsData.length} records`}
             </span>
             
             <div className="flex items-center gap-2">
               <button 
                 onClick={handlePrevPage} 
-                disabled={currentPage === 1 || isLoading}
+                disabled={currentPage === 1 || isLoading || reportsData.length === 0}
                 className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-[#333866] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
                 Previous
@@ -310,7 +420,7 @@ export default function Reports() {
               
               <button 
                 onClick={handleNextPage} 
-                disabled={currentPage >= totalPages || isLoading}
+                disabled={currentPage >= totalPages || isLoading || reportsData.length === 0}
                 className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-[#333866] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
                 Next
