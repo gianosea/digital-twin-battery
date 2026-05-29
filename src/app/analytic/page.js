@@ -4,7 +4,6 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import Link from "next/link";
-// Import komponen grafik dari Recharts
 import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
@@ -14,21 +13,16 @@ export default function Analytic() {
   const router = useRouter();
 
   const [historyData, setHistoryData] = useState([]);
-  // Kamu bisa ubah default-nya ke "1H" jika ingin saat pertama kali buka langsung nampil 1 Jam
   const [timeRange, setTimeRange] = useState("24H");
 
   useEffect(() => {
     const fetchHistoryData = async () => {
-      // Limit dinaikkan ke 1000 agar muat menampung data 1 Jam full (720 data untuk delay 5 detik)
       let query = supabase
         .from('battery_logs') 
         .select('*')
         .order('timestamp', { ascending: false }) 
         .limit(1000); 
 
-      // ==========================================
-      // LOGIKA FILTER WAKTU (1H, 24H, 7D, 30D)
-      // ==========================================
       const now = new Date();
       let startDate = new Date();
 
@@ -49,9 +43,6 @@ export default function Analytic() {
       if (data && !error) {
         const reversedData = data.reverse();
         
-        // ==========================================
-        // LOGIKA PENANGANAN DATA GAP (KOSONG = NULL)
-        // ==========================================
         const paddedData = [];
         const GAP_THRESHOLD_MS = 60 * 1000; 
 
@@ -75,16 +66,12 @@ export default function Analytic() {
           paddedData.push(currentItem);
         }
 
-        // ==========================================
-        // FORMAT DATA UNTUK RECHARTS 
-        // ==========================================
         const formattedData = paddedData.map((item) => {
           
           const dateObj = new Date(item.timestamp);
           const unixTimeMs = dateObj.getTime(); 
 
           let tooltipTimeString = ""; 
-          // Jika filter 1H atau 24H, format Tooltip tampilkan Jam:Menit:Detik saja
           if (timeRange === "1H" || timeRange === "24H") {
             tooltipTimeString = dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
           } else {
@@ -130,12 +117,8 @@ export default function Analytic() {
     router.push("/");
   };
 
-  // ==========================================
-  // CUSTOM FORMATTER SUMBU X
-  // ==========================================
   const formatXAxis = (tickItem) => {
     const dateObj = new Date(tickItem);
-    // Jika 1H atau 24H cukup tampilkan jam di Sumbu X
     if (timeRange === "1H" || timeRange === "24H") {
       return dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' });
     }
@@ -158,6 +141,11 @@ export default function Analytic() {
       );
     }
     return null;
+  };
+
+  // TAMBAHAN: Fungsi untuk membulatkan angka panjang di Y-Axis (misal -10.12345 jadi -10.1)
+  const formatYAxis = (tickItem) => {
+    return typeof tickItem === 'number' ? tickItem.toFixed(1) : tickItem;
   };
 
   return (
@@ -213,7 +201,6 @@ export default function Analytic() {
           </div>
           
           <div className="flex bg-white rounded-xl shadow-sm border border-slate-200 p-1 overflow-x-auto">
-            {/* TAMBAHAN TOMBOL 1H */}
             <button 
               onClick={() => setTimeRange("1H")} 
               className={`px-5 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "1H" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
@@ -241,6 +228,7 @@ export default function Analytic() {
           </div>
         </header>
 
+        {/* PENTING: Margin pada grafik ditingkatkan margin={{ top: 10, right: 30, left: 10, bottom: 0 }} agar tidak menempel ke tepi */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           
           {/* 1. GRAFIK VOLTASE */}
@@ -248,7 +236,7 @@ export default function Analytic() {
             <h2 className="text-xl font-black text-[#333866] mb-6">Voltage History (V)</h2>
             <div className="w-full h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={historyData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                <AreaChart data={historyData} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorVoltage" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#6079ca" stopOpacity={0.4}/>
@@ -257,7 +245,7 @@ export default function Analytic() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatXAxis} axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} dy={10} />
-                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} domain={['dataMin - 2', 'dataMax + 2']} />
+                  <YAxis tickFormatter={formatYAxis} width={40} axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} domain={['dataMin - 1', 'dataMax + 1']} />
                   <Tooltip content={<CustomTooltip />} />
                   <Area type="monotone" dataKey="voltage" name="Pack Voltage" stroke="#6079ca" strokeWidth={4} fillOpacity={1} fill="url(#colorVoltage)" />
                 </AreaChart>
@@ -270,10 +258,10 @@ export default function Analytic() {
             <h2 className="text-xl font-black text-[#333866] mb-6">Current Flow (A)</h2>
             <div className="w-full h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={historyData}>
+                <LineChart data={historyData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatXAxis} axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} dy={10}/>
-                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} />
+                  <YAxis tickFormatter={formatYAxis} width={40} axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} domain={['auto', 'auto']} />
                   <Tooltip content={<CustomTooltip />} />
                   <Line type="monotone" dataKey="current" name="Current" stroke="#10b981" strokeWidth={4} dot={{r: 4, fill: '#10b981'}} activeDot={{r: 8}} />
                 </LineChart>
@@ -286,7 +274,7 @@ export default function Analytic() {
             <h2 className="text-xl font-black text-[#333866] mb-6">Avg Temperature (°C)</h2>
             <div className="w-full h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={historyData}>
+                <AreaChart data={historyData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorTemp" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4}/>
@@ -295,7 +283,7 @@ export default function Analytic() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatXAxis} axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} dy={10}/>
-                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} domain={['dataMin - 5', 'dataMax + 5']}/>
+                  <YAxis tickFormatter={formatYAxis} width={40} axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} domain={['dataMin - 2', 'dataMax + 2']}/>
                   <Tooltip content={<CustomTooltip />} />
                   <Area type="monotone" dataKey="temp" name="Temperature" stroke="#f59e0b" strokeWidth={4} fillOpacity={1} fill="url(#colorTemp)" />
                 </AreaChart>
@@ -308,10 +296,10 @@ export default function Analytic() {
             <h2 className="text-xl font-black text-[#333866] mb-6">State of Charge (%)</h2>
             <div className="w-full h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={historyData}>
+                <LineChart data={historyData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatXAxis} axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} dy={10}/>
-                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} domain={[0, 100]}/>
+                  <YAxis tickFormatter={formatYAxis} width={40} axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} domain={[0, 100]}/>
                   <Tooltip content={<CustomTooltip />} />
                   <Line type="monotone" dataKey="soc" name="SoC" stroke="#3b82f6" strokeWidth={4} dot={{r: 4, fill: '#3b82f6'}} activeDot={{r: 8}} />
                 </LineChart>
@@ -324,10 +312,10 @@ export default function Analytic() {
             <h2 className="text-xl font-black text-[#333866] mb-6">State of Health (%)</h2>
             <div className="w-full h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={historyData}>
+                <LineChart data={historyData} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatXAxis} axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} dy={10}/>
-                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} domain={['dataMin - 1', 'dataMax + 1']}/>
+                  <YAxis tickFormatter={formatYAxis} width={40} axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} domain={['dataMin - 1', 'dataMax + 1']}/>
                   <Tooltip content={<CustomTooltip />} />
                   <Line type="stepAfter" dataKey="soh" name="SoH" stroke="#333866" strokeWidth={4} dot={{r: 4, fill: '#333866'}} activeDot={{r: 8}} />
                 </LineChart>
