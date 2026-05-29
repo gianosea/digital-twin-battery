@@ -51,7 +51,7 @@ export default function Analytic() {
         const reversedData = data.reverse();
         
         // ==========================================
-        // LOGIKA PENANGANAN DATA GAP (KOSONG = 0)
+        // LOGIKA PENANGANAN DATA GAP (KOSONG = NULL)
         // ==========================================
         const paddedData = [];
         const GAP_THRESHOLD_MS = 60 * 1000; // Batas toleransi tidak ada data: 1 Menit (60.000 ms)
@@ -66,22 +66,13 @@ export default function Analytic() {
             
             // Jika alat mati / tidak mengirim data lebih dari 1 menit
             if (currentMs - prevMs > GAP_THRESHOLD_MS) {
-              // 1. Suntikkan angka 0 tepat setelah alat mati agar grafik langsung drop
+              // Suntikkan 1 titik dengan nilai "null" di tengah-tengah jeda
+              // Ini akan menyuruh Recharts "memutus" garis grafik, bukan menjatuhkannya ke 0
               paddedData.push({
-                ...prevItem,
-                timestamp: new Date(prevMs + 1000).toISOString(), // 1 detik setelah data terakhir
-                total_voltage: 0, current: 0, soc: 0, soh: 0,
-                temperature_1: 0, temperature_2: 0, temperature_3: 0, 
-                temperature_4: 0, temperature_5: 0, temperature_6: 0
-              });
-              
-              // 2. Suntikkan angka 0 lagi tepat sebelum alat menyala agar garis tetap di bawah
-              paddedData.push({
-                ...currentItem,
-                timestamp: new Date(currentMs - 1000).toISOString(), // 1 detik sebelum data baru masuk
-                total_voltage: 0, current: 0, soc: 0, soh: 0,
-                temperature_1: 0, temperature_2: 0, temperature_3: 0, 
-                temperature_4: 0, temperature_5: 0, temperature_6: 0
+                timestamp: new Date((prevMs + currentMs) / 2).toISOString(), // Ambil waktu tengah
+                total_voltage: null, current: null, soc: null, soh: null,
+                temperature_1: null, temperature_2: null, temperature_3: null, 
+                temperature_4: null, temperature_5: null, temperature_6: null
               });
             }
           }
@@ -93,14 +84,6 @@ export default function Analytic() {
         // ==========================================
         const formattedData = paddedData.map((item) => {
           
-          const temp1 = item.temperature_1 ?? 0;
-          const temp2 = item.temperature_2 ?? 0;
-          const temp3 = item.temperature_3 ?? 0;
-          const temp4 = item.temperature_4 ?? 0;
-          const temp5 = item.temperature_5 ?? 0;
-          const temp6 = item.temperature_6 ?? 0;
-          const avgTemperature = (temp1 + temp2 + temp3 + temp4 + temp5 + temp6) / 6;
-
           const dateObj = new Date(item.timestamp);
           let timeString = "";
 
@@ -110,6 +93,23 @@ export default function Analytic() {
           } else {
             timeString = dateObj.toLocaleString("id-ID", { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '');
           }
+
+          // Cek apakah ini adalah titik "null" buatan kita untuk memutus garis
+          if (item.total_voltage === null) {
+            return {
+              time: timeString,
+              voltage: null, current: null, temp: null, soc: null, soh: null
+            };
+          }
+
+          // Jika data normal, hitung seperti biasa
+          const temp1 = item.temperature_1 ?? 0;
+          const temp2 = item.temperature_2 ?? 0;
+          const temp3 = item.temperature_3 ?? 0;
+          const temp4 = item.temperature_4 ?? 0;
+          const temp5 = item.temperature_5 ?? 0;
+          const temp6 = item.temperature_6 ?? 0;
+          const avgTemperature = (temp1 + temp2 + temp3 + temp4 + temp5 + temp6) / 6;
 
           return {
             time: timeString,
@@ -128,7 +128,7 @@ export default function Analytic() {
     };
 
     fetchHistoryData();
-  }, [timeRange]); // <- useEffect berjalan ulang setiap tombol filter diklik
+  }, [timeRange]); 
 
   const handleLogout = () => {
     router.push("/");
@@ -141,7 +141,7 @@ export default function Analytic() {
           <p className="text-slate-500 font-bold mb-2">{`Time: ${label}`}</p>
           {payload.map((entry, index) => (
             <p key={index} style={{ color: entry.color }} className="font-black text-lg">
-              {entry.name}: {entry.value}
+              {entry.name}: {entry.value !== null ? entry.value : "No Data"}
             </p>
           ))}
         </div>
@@ -279,7 +279,7 @@ export default function Analytic() {
                     <linearGradient id="colorTemp" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4}/>
                       <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
-                    </linearGradient>
+                    </linear.gradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} dy={10}/>
