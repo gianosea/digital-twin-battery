@@ -13,44 +13,88 @@ export default function Analytic() {
   const router = useRouter();
 
   const [historyData, setHistoryData] = useState([]);
-  const [timeRange, setTimeRange] = useState("24H");
+  const [timeRange, setTimeRange] = useState("1M"); // Default dibuat 1 Menit agar terlihat realtime
 
   useEffect(() => {
     const fetchHistoryData = async () => {
+      
+      const now = new Date();
+      let startDate = new Date();
+      let limitValue = 1000; // Limit dinamis tergantung filter
+
+      // ==========================================
+      // LOGIKA FILTER WAKTU (1M, 1H, 24H, 7D, 30D)
+      // ==========================================
+      if (timeRange === "1M") {
+        startDate.setMinutes(now.getMinutes() - 1);
+        limitValue = 150; // Cukup kecil karena hanya 1 menit
+      } else if (timeRange === "1H") {
+        startDate.setHours(now.getHours() - 1);
+        limitValue = 1000;
+      } else if (timeRange === "24H") {
+        startDate.setHours(now.getHours() - 24);
+        limitValue = 20000; // Limit dinaikkan drastis untuk mencakup 24 jam x 5 detik
+      } else if (timeRange === "7D") {
+        startDate.setDate(now.getDate() - 7);
+        limitValue = 150000;
+      } else if (timeRange === "30D") {
+        startDate.setDate(now.getDate() - 30);
+        limitValue = 500000;
+      }
+
       let query = supabase
         .from('battery_logs') 
         .select('*')
         .order('timestamp', { ascending: false }) 
-        .limit(1000); 
-
-      const now = new Date();
-      let startDate = new Date();
-
-      if (timeRange === "1H") {
-        startDate.setHours(now.getHours() - 1);
-      } else if (timeRange === "24H") {
-        startDate.setHours(now.getHours() - 24);
-      } else if (timeRange === "7D") {
-        startDate.setDate(now.getDate() - 7);
-      } else if (timeRange === "30D") {
-        startDate.setDate(now.getDate() - 30);
-      }
-
-      query = query.gte('timestamp', startDate.toISOString());
+        .gte('timestamp', startDate.toISOString())
+        .limit(limitValue); 
 
       const { data, error } = await query;
 
       if (data && !error) {
         const reversedData = data.reverse();
         
-        const paddedData = [];
-        const GAP_THRESHOLD_MS = 60 * 1000; 
+        // ==========================================
+        // LOGIKA DOWNSAMPLING (Pemadatan Data)
+        // ==========================================
+        const grouped = {};
+        
+        reversedData.forEach(item => {
+          const d = new Date(item.timestamp);
+          let key;
+          
+          if (timeRange === "24H") {
+            // Kelompokkan per Jam (Contoh Kunci: "2026-05-29-21")
+            key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`;
+          } else if (timeRange === "7D" || timeRange === "30D") {
+            // Kelompokkan per Hari (Contoh Kunci: "2026-05-29")
+            key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+          } else {
+            // 1M dan 1H: Ambil data murni apa adanya tanpa dikelompokkan
+            key = item.timestamp;
+          }
+          
+          // Data akan selalu tertimpa dengan log paling terakhir di jam/hari tersebut
+          grouped[key] = item; 
+        });
+        
+        const downsampledData = Object.values(grouped);
 
-        for (let i = 0; i < reversedData.length; i++) {
-          const currentItem = reversedData[i];
+        // ==========================================
+        // LOGIKA PENANGANAN DATA GAP (KOSONG = NULL)
+        // ==========================================
+        const paddedData = [];
+        
+        // Sesuaikan batas toleransi putus koneksi agar grafik tidak terpotong saat di-downsample
+        let GAP_THRESHOLD_MS = 60 * 1000; // Default 1 Menit
+        if (timeRange === "24H") GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 Jam 
+        if (timeRange === "7D" || timeRange === "30D") GAP_THRESHOLD_MS = 2 * 24 * 60 * 60 * 1000; // 2 Hari
+
+        for (let i = 0; i < downsampledData.length; i++) {
+          const currentItem = downsampledData[i];
           
           if (i > 0) {
-            const prevItem = reversedData[i - 1];
+            const prevItem = downsampledData[i - 1];
             const currentMs = new Date(currentItem.timestamp).getTime();
             const prevMs = new Date(prevItem.timestamp).getTime();
             
@@ -66,16 +110,19 @@ export default function Analytic() {
           paddedData.push(currentItem);
         }
 
+        // ==========================================
+        // FORMAT DATA UNTUK RECHARTS 
+        // ==========================================
         const formattedData = paddedData.map((item) => {
           
           const dateObj = new Date(item.timestamp);
           const unixTimeMs = dateObj.getTime(); 
 
           let tooltipTimeString = ""; 
-          if (timeRange === "1H" || timeRange === "24H") {
+          if (timeRange === "1M" || timeRange === "1H") {
             tooltipTimeString = dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
           } else {
-            tooltipTimeString = dateObj.toLocaleString("id-ID", { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(',', '');
+            tooltipTimeString = dateObj.toLocaleString("id-ID", { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '');
           }
 
           if (item.total_voltage === null) {
@@ -117,12 +164,21 @@ export default function Analytic() {
     router.push("/");
   };
 
+  // ==========================================
+  // CUSTOM FORMATTER SUMBU X
+  // ==========================================
   const formatXAxis = (tickItem) => {
     const dateObj = new Date(tickItem);
+    // 1 Menit: Tampilkan detail sampai detik (Contoh: 21:05:30)
+    if (timeRange === "1M") {
+      return dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+    // 1 Jam & 24 Jam: Tampilkan Jam:Menit (Contoh: 21:05)
     if (timeRange === "1H" || timeRange === "24H") {
       return dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' });
     }
-    return dateObj.toLocaleString("id-ID", { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '');
+    // 7 Hari & 30 Hari: Tampilkan Tanggal/Bulan (Contoh: 29/05)
+    return dateObj.toLocaleDateString("id-ID", { day: '2-digit', month: '2-digit' });
   };
 
   const CustomTooltip = ({ active, payload }) => {
@@ -143,7 +199,6 @@ export default function Analytic() {
     return null;
   };
 
-  // TAMBAHAN: Fungsi untuk membulatkan angka panjang di Y-Axis (misal -10.12345 jadi -10.1)
   const formatYAxis = (tickItem) => {
     return typeof tickItem === 'number' ? tickItem.toFixed(1) : tickItem;
   };
@@ -201,6 +256,13 @@ export default function Analytic() {
           </div>
           
           <div className="flex bg-white rounded-xl shadow-sm border border-slate-200 p-1 overflow-x-auto">
+            {/* TAMBAHAN TOMBOL 1M */}
+            <button 
+              onClick={() => setTimeRange("1M")} 
+              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "1M" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
+            >
+              1M
+            </button>
             <button 
               onClick={() => setTimeRange("1H")} 
               className={`px-5 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "1H" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
@@ -228,7 +290,6 @@ export default function Analytic() {
           </div>
         </header>
 
-        {/* PENTING: Margin pada grafik ditingkatkan margin={{ top: 10, right: 30, left: 10, bottom: 0 }} agar tidak menempel ke tepi */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           
           {/* 1. GRAFIK VOLTASE */}
