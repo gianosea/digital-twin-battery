@@ -48,8 +48,50 @@ export default function Analytic() {
       const { data, error } = await query;
 
       if (data && !error) {
-        // Balik array dari terlama ke terbaru untuk grafik Recharts
-        const formattedData = data.reverse().map((item) => {
+        const reversedData = data.reverse();
+        
+        // ==========================================
+        // LOGIKA PENANGANAN DATA GAP (KOSONG = 0)
+        // ==========================================
+        const paddedData = [];
+        const GAP_THRESHOLD_MS = 60 * 1000; // Batas toleransi tidak ada data: 1 Menit (60.000 ms)
+
+        for (let i = 0; i < reversedData.length; i++) {
+          const currentItem = reversedData[i];
+          
+          if (i > 0) {
+            const prevItem = reversedData[i - 1];
+            const currentMs = new Date(currentItem.timestamp).getTime();
+            const prevMs = new Date(prevItem.timestamp).getTime();
+            
+            // Jika alat mati / tidak mengirim data lebih dari 1 menit
+            if (currentMs - prevMs > GAP_THRESHOLD_MS) {
+              // 1. Suntikkan angka 0 tepat setelah alat mati agar grafik langsung drop
+              paddedData.push({
+                ...prevItem,
+                timestamp: new Date(prevMs + 1000).toISOString(), // 1 detik setelah data terakhir
+                total_voltage: 0, current: 0, soc: 0, soh: 0,
+                temperature_1: 0, temperature_2: 0, temperature_3: 0, 
+                temperature_4: 0, temperature_5: 0, temperature_6: 0
+              });
+              
+              // 2. Suntikkan angka 0 lagi tepat sebelum alat menyala agar garis tetap di bawah
+              paddedData.push({
+                ...currentItem,
+                timestamp: new Date(currentMs - 1000).toISOString(), // 1 detik sebelum data baru masuk
+                total_voltage: 0, current: 0, soc: 0, soh: 0,
+                temperature_1: 0, temperature_2: 0, temperature_3: 0, 
+                temperature_4: 0, temperature_5: 0, temperature_6: 0
+              });
+            }
+          }
+          paddedData.push(currentItem);
+        }
+
+        // ==========================================
+        // FORMAT DATA UNTUK RECHARTS
+        // ==========================================
+        const formattedData = paddedData.map((item) => {
           
           const temp1 = item.temperature_1 ?? 0;
           const temp2 = item.temperature_2 ?? 0;
@@ -63,8 +105,6 @@ export default function Analytic() {
           let timeString = "";
 
           // FORMAT LABEL ADAPTIF: 
-          // Jika 24H cukup tampilkan Jam (14:30)
-          // Jika 7D/30D tampilkan Tanggal & Jam (29/05 14:30)
           if (timeRange === "24H") {
             timeString = dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' });
           } else {
@@ -165,7 +205,7 @@ export default function Analytic() {
             <p className="text-slate-500 font-medium mt-1">Detailed historical trends of your 13S Battery Pack.</p>
           </div>
           
-          {/* UI Tombol Filter (Mirip contoh gambar Gas Quality) */}
+          {/* UI Tombol Filter */}
           <div className="flex bg-white rounded-xl shadow-sm border border-slate-200 p-1">
             <button 
               onClick={() => setTimeRange("24H")} 
