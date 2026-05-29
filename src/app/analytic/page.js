@@ -21,7 +21,6 @@ export default function Analytic() {
 
   useEffect(() => {
     const fetchHistoryData = async () => {
-      // Kita naikkan limitnya menjadi 500 agar saat memilih 7D/30D datanya cukup mewakili
       let query = supabase
         .from('battery_logs') 
         .select('*')
@@ -42,7 +41,6 @@ export default function Analytic() {
         startDate.setDate(now.getDate() - 30);
       }
 
-      // Terapkan filter ke Supabase
       query = query.gte('timestamp', startDate.toISOString());
 
       const { data, error } = await query;
@@ -54,7 +52,7 @@ export default function Analytic() {
         // LOGIKA PENANGANAN DATA GAP (KOSONG = NULL)
         // ==========================================
         const paddedData = [];
-        const GAP_THRESHOLD_MS = 60 * 1000; // Batas toleransi tidak ada data: 1 Menit (60.000 ms)
+        const GAP_THRESHOLD_MS = 60 * 1000; 
 
         for (let i = 0; i < reversedData.length; i++) {
           const currentItem = reversedData[i];
@@ -64,12 +62,9 @@ export default function Analytic() {
             const currentMs = new Date(currentItem.timestamp).getTime();
             const prevMs = new Date(prevItem.timestamp).getTime();
             
-            // Jika alat mati / tidak mengirim data lebih dari 1 menit
             if (currentMs - prevMs > GAP_THRESHOLD_MS) {
-              // Suntikkan 1 titik dengan nilai "null" di tengah-tengah jeda
-              // Ini akan menyuruh Recharts "memutus" garis grafik, bukan menjatuhkannya ke 0
               paddedData.push({
-                timestamp: new Date((prevMs + currentMs) / 2).toISOString(), // Ambil waktu tengah
+                timestamp: new Date((prevMs + currentMs) / 2).toISOString(), 
                 total_voltage: null, current: null, soc: null, soh: null,
                 temperature_1: null, temperature_2: null, temperature_3: null, 
                 temperature_4: null, temperature_5: null, temperature_6: null
@@ -85,24 +80,26 @@ export default function Analytic() {
         const formattedData = paddedData.map((item) => {
           
           const dateObj = new Date(item.timestamp);
-          let timeString = "";
+          let axisTimeString = "";
+          let tooltipTimeString = ""; // Variabel baru khusus untuk detil detik di Tooltip
 
-          // FORMAT LABEL ADAPTIF: 
+          // FORMAT LABEL ADAPTIF
           if (timeRange === "24H") {
-            timeString = dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' });
+            axisTimeString = dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' });
+            // Tampilkan detik khusus di pop-up
+            tooltipTimeString = dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
           } else {
-            timeString = dateObj.toLocaleString("id-ID", { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '');
+            axisTimeString = dateObj.toLocaleString("id-ID", { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '');
+            tooltipTimeString = dateObj.toLocaleString("id-ID", { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(',', '');
           }
 
-          // Cek apakah ini adalah titik "null" buatan kita untuk memutus garis
           if (item.total_voltage === null) {
             return {
-              time: timeString,
+              time: axisTimeString, fullTime: tooltipTimeString,
               voltage: null, current: null, temp: null, soc: null, soh: null
             };
           }
 
-          // Jika data normal, hitung seperti biasa
           const temp1 = item.temperature_1 ?? 0;
           const temp2 = item.temperature_2 ?? 0;
           const temp3 = item.temperature_3 ?? 0;
@@ -112,7 +109,8 @@ export default function Analytic() {
           const avgTemperature = (temp1 + temp2 + temp3 + temp4 + temp5 + temp6) / 6;
 
           return {
-            time: timeString,
+            time: axisTimeString,         // Dipakai di Sumbu X (Bawah)
+            fullTime: tooltipTimeString,  // Dipakai di Pop-up Hover
             voltage: item.total_voltage ?? 0,
             current: item.current ?? 0,
             temp: parseFloat(avgTemperature.toFixed(1)), 
@@ -134,14 +132,20 @@ export default function Analytic() {
     router.push("/");
   };
 
-  const CustomTooltip = ({ active, payload, label }) => {
+  // ==========================================
+  // CUSTOM TOOLTIP (Sekarang memanggil `fullTime`)
+  // ==========================================
+  const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
+      // Ambil waktu lengkap beserta detik dari data
+      const timeLabel = payload[0].payload.fullTime; 
+      
       return (
         <div className="bg-white p-4 rounded-xl shadow-lg border border-slate-100">
-          <p className="text-slate-500 font-bold mb-2">{`Time: ${label}`}</p>
+          <p className="text-slate-500 font-bold mb-2">{`Time: ${timeLabel}`}</p>
           {payload.map((entry, index) => (
             <p key={index} style={{ color: entry.color }} className="font-black text-lg">
-              {entry.name}: {entry.value !== null ? entry.value : "No Data"}
+              {entry.name}: {entry.value !== null ? entry.value : "Offline/No Data"}
             </p>
           ))}
         </div>
