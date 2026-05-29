@@ -13,27 +13,28 @@ import { supabase } from "@/utils/supabase";
 export default function Analytic() {
   const router = useRouter();
 
-  // State untuk menyimpan data riwayat asli dari Supabase
   const [historyData, setHistoryData] = useState([]);
-  
-  // STATE BARU: Untuk menyimpan pilihan filter waktu aktif
+  // Kamu bisa ubah default-nya ke "1H" jika ingin saat pertama kali buka langsung nampil 1 Jam
   const [timeRange, setTimeRange] = useState("24H");
 
   useEffect(() => {
     const fetchHistoryData = async () => {
+      // Limit dinaikkan ke 1000 agar muat menampung data 1 Jam full (720 data untuk delay 5 detik)
       let query = supabase
         .from('battery_logs') 
         .select('*')
         .order('timestamp', { ascending: false }) 
-        .limit(500); 
+        .limit(1000); 
 
       // ==========================================
-      // LOGIKA FILTER WAKTU (24H, 7D, 30D)
+      // LOGIKA FILTER WAKTU (1H, 24H, 7D, 30D)
       // ==========================================
       const now = new Date();
       let startDate = new Date();
 
-      if (timeRange === "24H") {
+      if (timeRange === "1H") {
+        startDate.setHours(now.getHours() - 1);
+      } else if (timeRange === "24H") {
         startDate.setHours(now.getHours() - 24);
       } else if (timeRange === "7D") {
         startDate.setDate(now.getDate() - 7);
@@ -75,27 +76,24 @@ export default function Analytic() {
         }
 
         // ==========================================
-        // FORMAT DATA UNTUK RECHARTS
+        // FORMAT DATA UNTUK RECHARTS 
         // ==========================================
         const formattedData = paddedData.map((item) => {
           
           const dateObj = new Date(item.timestamp);
-          let axisTimeString = "";
-          let tooltipTimeString = ""; // Variabel baru khusus untuk detil detik di Tooltip
+          const unixTimeMs = dateObj.getTime(); 
 
-          // FORMAT LABEL ADAPTIF
-          if (timeRange === "24H") {
-            axisTimeString = dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' });
-            // Tampilkan detik khusus di pop-up
+          let tooltipTimeString = ""; 
+          // Jika filter 1H atau 24H, format Tooltip tampilkan Jam:Menit:Detik saja
+          if (timeRange === "1H" || timeRange === "24H") {
             tooltipTimeString = dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
           } else {
-            axisTimeString = dateObj.toLocaleString("id-ID", { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '');
             tooltipTimeString = dateObj.toLocaleString("id-ID", { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(',', '');
           }
 
           if (item.total_voltage === null) {
             return {
-              time: axisTimeString, fullTime: tooltipTimeString,
+              time: unixTimeMs, fullTime: tooltipTimeString,
               voltage: null, current: null, temp: null, soc: null, soh: null
             };
           }
@@ -109,8 +107,8 @@ export default function Analytic() {
           const avgTemperature = (temp1 + temp2 + temp3 + temp4 + temp5 + temp6) / 6;
 
           return {
-            time: axisTimeString,         // Dipakai di Sumbu X (Bawah)
-            fullTime: tooltipTimeString,  // Dipakai di Pop-up Hover
+            time: unixTimeMs,             
+            fullTime: tooltipTimeString,  
             voltage: item.total_voltage ?? 0,
             current: item.current ?? 0,
             temp: parseFloat(avgTemperature.toFixed(1)), 
@@ -133,11 +131,19 @@ export default function Analytic() {
   };
 
   // ==========================================
-  // CUSTOM TOOLTIP (Sekarang memanggil `fullTime`)
+  // CUSTOM FORMATTER SUMBU X
   // ==========================================
+  const formatXAxis = (tickItem) => {
+    const dateObj = new Date(tickItem);
+    // Jika 1H atau 24H cukup tampilkan jam di Sumbu X
+    if (timeRange === "1H" || timeRange === "24H") {
+      return dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' });
+    }
+    return dateObj.toLocaleString("id-ID", { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '');
+  };
+
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
-      // Ambil waktu lengkap beserta detik dari data
       const timeLabel = payload[0].payload.fullTime; 
       
       return (
@@ -157,7 +163,6 @@ export default function Analytic() {
   return (
     <div className="flex min-h-screen bg-[#f4f7fe] text-slate-800 font-sans">
       
-      {/* SIDEBAR NAVIGASI KIRI */}
       <aside className="w-64 bg-white flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20 border-r border-slate-100 flex-shrink-0">
         <div className="p-8 flex items-center gap-3">
           <Image src="/logo-bh.png" alt="B-Hero Logo" width={36} height={36} className="object-contain" priority style={{ width: 'auto', height: 'auto' }}/>
@@ -199,43 +204,46 @@ export default function Analytic() {
         </div>
       </aside>
 
-      {/* KONTEN UTAMA ANALYTIC */}
       <main className="flex-1 p-8 md:p-10 overflow-y-auto">
         
-        {/* HEADER DENGAN FILTER TOMBOL SEGMENTED */}
         <header className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-[32px] font-extrabold text-[#333866] tracking-tight">Data Analytics</h1>
             <p className="text-slate-500 font-medium mt-1">Detailed historical trends of your 13S Battery Pack.</p>
           </div>
           
-          {/* UI Tombol Filter */}
-          <div className="flex bg-white rounded-xl shadow-sm border border-slate-200 p-1">
+          <div className="flex bg-white rounded-xl shadow-sm border border-slate-200 p-1 overflow-x-auto">
+            {/* TAMBAHAN TOMBOL 1H */}
+            <button 
+              onClick={() => setTimeRange("1H")} 
+              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "1H" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
+            >
+              1H
+            </button>
             <button 
               onClick={() => setTimeRange("24H")} 
-              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${timeRange === "24H" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
+              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "24H" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
             >
               24H
             </button>
             <button 
               onClick={() => setTimeRange("7D")} 
-              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${timeRange === "7D" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
+              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "7D" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
             >
               7D
             </button>
             <button 
               onClick={() => setTimeRange("30D")} 
-              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${timeRange === "30D" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
+              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "30D" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
             >
               30D
             </button>
           </div>
         </header>
 
-        {/* GRID GRAFIK UTAMA */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           
-          {/* 1. GRAFIK VOLTASE (Lebar Penuh 2 Kolom) */}
+          {/* 1. GRAFIK VOLTASE */}
           <div className="lg:col-span-2 bg-white rounded-[2rem] p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
             <h2 className="text-xl font-black text-[#333866] mb-6">Voltage History (V)</h2>
             <div className="w-full h-72">
@@ -248,7 +256,7 @@ export default function Analytic() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} dy={10} />
+                  <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatXAxis} axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} dy={10} />
                   <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} domain={['dataMin - 2', 'dataMax + 2']} />
                   <Tooltip content={<CustomTooltip />} />
                   <Area type="monotone" dataKey="voltage" name="Pack Voltage" stroke="#6079ca" strokeWidth={4} fillOpacity={1} fill="url(#colorVoltage)" />
@@ -264,7 +272,7 @@ export default function Analytic() {
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={historyData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} dy={10}/>
+                  <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatXAxis} axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} dy={10}/>
                   <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} />
                   <Tooltip content={<CustomTooltip />} />
                   <Line type="monotone" dataKey="current" name="Current" stroke="#10b981" strokeWidth={4} dot={{r: 4, fill: '#10b981'}} activeDot={{r: 8}} />
@@ -286,7 +294,7 @@ export default function Analytic() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} dy={10}/>
+                  <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatXAxis} axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} dy={10}/>
                   <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} domain={['dataMin - 5', 'dataMax + 5']}/>
                   <Tooltip content={<CustomTooltip />} />
                   <Area type="monotone" dataKey="temp" name="Temperature" stroke="#f59e0b" strokeWidth={4} fillOpacity={1} fill="url(#colorTemp)" />
@@ -302,7 +310,7 @@ export default function Analytic() {
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={historyData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} dy={10}/>
+                  <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatXAxis} axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} dy={10}/>
                   <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} domain={[0, 100]}/>
                   <Tooltip content={<CustomTooltip />} />
                   <Line type="monotone" dataKey="soc" name="SoC" stroke="#3b82f6" strokeWidth={4} dot={{r: 4, fill: '#3b82f6'}} activeDot={{r: 8}} />
@@ -318,7 +326,7 @@ export default function Analytic() {
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={historyData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} dy={10}/>
+                  <XAxis dataKey="time" type="number" domain={['dataMin', 'dataMax']} tickFormatter={formatXAxis} axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} dy={10}/>
                   <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} domain={['dataMin - 1', 'dataMax + 1']}/>
                   <Tooltip content={<CustomTooltip />} />
                   <Line type="stepAfter" dataKey="soh" name="SoH" stroke="#333866" strokeWidth={4} dot={{r: 4, fill: '#333866'}} activeDot={{r: 8}} />
