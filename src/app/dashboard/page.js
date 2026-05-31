@@ -177,7 +177,7 @@ export default function Dashboard() {
         {/* ========================================================= */}
         <header className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-[32px] font-extrabold text-[#333866] tracking-tight">Welcome Back, B-Hero</h1>
+            <h1 className="text-[32px] font-extrabold text-[#333866] tracking-tight">Welcome Back!</h1>
             <p className="text-slate-500 font-medium mt-1">Here is your battery pack information today.</p>
           </div>
           
