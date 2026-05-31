@@ -32,7 +32,6 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "bugs": {
     "url": "https://github.com/gianosea/digital-twin-battery/issues"
   },
