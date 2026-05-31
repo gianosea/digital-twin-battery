@@ -188,8 +188,8 @@ export default function Reports() {
   return (
     <div className="flex min-h-screen bg-[#f4f7fe] text-slate-800 font-sans">
       
-      {/* SIDEBAR NAVIGASI KIRI */}
-      <aside className="w-64 bg-white flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20 border-r border-slate-100 flex-shrink-0">
+      {/* SIDEBAR NAVIGASI KIRI - DIPERBARUI DENGAN STICKY DAN H-SCREEN */}
+      <aside className="w-64 bg-white flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20 border-r border-slate-100 sticky top-0 h-screen flex-shrink-0">
         <div className="p-8 flex items-center gap-3">
           <Image src="/logo-bh.png" alt="B-Hero Logo" width={36} height={36} className="object-contain" style={{ width: 'auto', height: 'auto' }} priority />
           <span className="text-2xl font-black tracking-tight text-[#333866]">B-HERO</span>
@@ -223,7 +223,8 @@ export default function Reports() {
           </Link>
         </nav>
 
-        <div className="p-6">
+        {/* TOMBOL LOG OUT - DITAMBAHKAN MT-AUTO */}
+        <div className="p-6 mt-auto">
           <button onClick={handleLogout} className="w-full flex items-center gap-4 text-slate-400 hover:text-red-500 hover:bg-red-50 px-5 py-3.5 rounded-2xl font-bold transition-all">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" /></svg>
             Log Out

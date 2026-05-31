@@ -71,7 +71,7 @@ export default function Dashboard() {
     // 1. Ambil data baris terakhir saat buka web
     const fetchInitialData = async () => {
       const { data, error } = await supabase
-        .from('battery_logs') // Pastikan nama tabel ini benar
+        .from('battery_logs') 
         .select('*')
         .order('timestamp', { ascending: false })
         .limit(1)
@@ -113,9 +113,9 @@ export default function Dashboard() {
     <div className="flex min-h-screen bg-[#f4f7fe] text-slate-800 font-sans">
       
       {/* ========================================================= */}
-      {/* SIDEBAR NAVIGASI KIRI */}
+      {/* SIDEBAR NAVIGASI KIRI - SEKARANG STICKY & H-SCREEN */}
       {/* ========================================================= */}
-      <aside className="w-64 bg-white flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20 border-r border-slate-100">
+      <aside className="w-64 bg-white flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20 border-r border-slate-100 sticky top-0 h-screen flex-shrink-0">
         
         {/* Header Sidebar / Logo */}
         <div className="p-8 flex items-center gap-3">
@@ -160,7 +160,7 @@ export default function Dashboard() {
         </nav>
 
         {/* Tombol Logout */}
-        <div className="p-6">
+        <div className="p-6 mt-auto">
           <button 
             onClick={handleLogout}
             className="w-full flex items-center gap-4 text-slate-400 hover:text-red-500 hover:bg-red-50 px-5 py-3.5 rounded-2xl font-bold transition-all"

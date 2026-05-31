@@ -24,9 +24,9 @@ export default function About() {
     <div className="flex min-h-screen bg-[#f4f7fe] text-slate-800 font-sans">
       
       {/* ========================================================= */}
-      {/* SIDEBAR NAVIGASI KIRI */}
+      {/* SIDEBAR NAVIGASI KIRI - DIPERBARUI DENGAN STICKY & H-SCREEN */}
       {/* ========================================================= */}
-      <aside className="w-64 bg-white flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20 border-r border-slate-100 flex-shrink-0">
+      <aside className="w-64 bg-white flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20 border-r border-slate-100 sticky top-0 h-screen flex-shrink-0">
         
         <div className="p-8 flex items-center gap-3">
           <Image 
@@ -50,7 +50,7 @@ export default function About() {
             Dashboard
           </Link>
           
-          {/* Analytic (Inactive) - Pie Chart Outline */}
+          {/* Analytic */}
           <Link href="/analytic" className="flex items-center gap-4 text-slate-400 hover:text-[#333866] hover:bg-slate-50 px-5 py-3.5 rounded-2xl font-semibold transition-all">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" />
@@ -76,7 +76,8 @@ export default function About() {
           </Link>
         </nav>
 
-        <div className="p-6">
+        {/* TOMBOL LOG OUT - DITAMBAHKAN MT-AUTO */}
+        <div className="p-6 mt-auto">
           <button onClick={handleLogout} className="w-full flex items-center gap-4 text-slate-400 hover:text-red-500 hover:bg-red-50 px-5 py-3.5 rounded-2xl font-bold transition-all">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" />
@@ -96,11 +97,10 @@ export default function About() {
         </header>
 
         {/* ========================================================= */}
-        {/* PANEL PUTIH (LEBAR SEJAJAR DENGANmax-w-6xl)                 */}
+        {/* PANEL PUTIH */}
         {/* ========================================================= */}
         <div className="bg-white rounded-[2.5rem] shadow-[0_8px_40px_rgb(0,0,0,0.03)] border border-slate-100 p-12 md:p-16 mb-16 max-w-6xl w-full text-center flex flex-col items-center justify-center">
           
-          {/* Wrapper text ini menjaga agar teks penjelasan di dalam kotak lebar tetap nyaman dibaca */}
           <div className="max-w-3xl flex flex-col items-center gap-6">
             <h2 className="text-2xl font-bold text-[#333866] leading-tight">The Digital Twin of B-HERO battery pack is here for you!</h2>
             
@@ -117,7 +117,7 @@ export default function About() {
         </div>
 
         {/* ========================================================= */}
-        {/* OUR TEAM SECTION (SEJAJAR SEMPURNA)                        */}
+        {/* OUR TEAM SECTION */}
         {/* ========================================================= */}
         <section className="w-full max-w-6xl flex flex-col items-center mb-12">
           <h3 className="text-center text-slate-400 font-bold text-sm uppercase tracking-[0.2em] mb-10">Our Team - Group 8</h3>
