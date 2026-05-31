@@ -12,28 +12,59 @@ import { supabase } from "@/utils/supabase";
 export default function Analytic() {
   const router = useRouter();
 
+  // ==========================================
+  // STATE UNTUK PEMILIHAN BATERAI & WAKTU
+  // ==========================================
   const [historyData, setHistoryData] = useState([]);
-  const [timeRange, setTimeRange] = useState("1M"); // Default dibuat 1 Menit agar terlihat realtime
+  const [timeRange, setTimeRange] = useState("1M"); 
+  
+  const [batteryIds, setBatteryIds] = useState([]);
+  const [selectedBatteryId, setSelectedBatteryId] = useState("");
 
+  // ==========================================
+  // EFFECT 1: MENGAMBIL DAFTAR ID BATERAI UNIK
+  // ==========================================
   useEffect(() => {
+    const fetchBatteryIds = async () => {
+      const { data, error } = await supabase
+        .from('battery_logs')
+        .select('battery_id')
+        .order('timestamp', { ascending: false })
+        .limit(2000); 
+
+      if (data && !error) {
+        const uniqueIds = [...new Set(data.map(item => item.battery_id).filter(Boolean))];
+        setBatteryIds(uniqueIds);
+        
+        if (uniqueIds.length > 0) {
+          setSelectedBatteryId(uniqueIds[0]);
+        }
+      }
+    };
+    fetchBatteryIds();
+  }, []);
+
+  // ==========================================
+  // EFFECT 2: FETCH DATA GRAFIK BERDASARKAN ID & WAKTU
+  // ==========================================
+  useEffect(() => {
+    // Tunggu sampai ID baterai sudah didapat dari Effect 1
+    if (!selectedBatteryId) return;
+
     const fetchHistoryData = async () => {
-      
       const now = new Date();
       let startDate = new Date();
-      let limitValue = 1000; // Limit dinamis tergantung filter
+      let limitValue = 1000; 
 
-      // ==========================================
-      // LOGIKA FILTER WAKTU (1M, 1H, 24H, 7D, 30D)
-      // ==========================================
       if (timeRange === "1M") {
         startDate.setMinutes(now.getMinutes() - 1);
-        limitValue = 150; // Cukup kecil karena hanya 1 menit
+        limitValue = 150; 
       } else if (timeRange === "1H") {
         startDate.setHours(now.getHours() - 1);
         limitValue = 1000;
       } else if (timeRange === "24H") {
         startDate.setHours(now.getHours() - 24);
-        limitValue = 20000; // Limit dinaikkan drastis untuk mencakup 24 jam x 5 detik
+        limitValue = 20000; 
       } else if (timeRange === "7D") {
         startDate.setDate(now.getDate() - 7);
         limitValue = 150000;
@@ -42,9 +73,11 @@ export default function Analytic() {
         limitValue = 500000;
       }
 
+      // Kueri dengan tambahan .eq() untuk memfilter berdasarkan Battery ID
       let query = supabase
         .from('battery_logs') 
         .select('*')
+        .eq('battery_id', selectedBatteryId) 
         .order('timestamp', { ascending: false }) 
         .gte('timestamp', startDate.toISOString())
         .limit(limitValue); 
@@ -54,9 +87,6 @@ export default function Analytic() {
       if (data && !error) {
         const reversedData = data.reverse();
         
-        // ==========================================
-        // LOGIKA DOWNSAMPLING (Pemadatan Data)
-        // ==========================================
         const grouped = {};
         
         reversedData.forEach(item => {
@@ -64,31 +94,21 @@ export default function Analytic() {
           let key;
           
           if (timeRange === "24H") {
-            // Kelompokkan per Jam (Contoh Kunci: "2026-05-29-21")
             key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`;
           } else if (timeRange === "7D" || timeRange === "30D") {
-            // Kelompokkan per Hari (Contoh Kunci: "2026-05-29")
             key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
           } else {
-            // 1M dan 1H: Ambil data murni apa adanya tanpa dikelompokkan
             key = item.timestamp;
           }
-          
-          // Data akan selalu tertimpa dengan log paling terakhir di jam/hari tersebut
           grouped[key] = item; 
         });
         
         const downsampledData = Object.values(grouped);
-
-        // ==========================================
-        // LOGIKA PENANGANAN DATA GAP (KOSONG = NULL)
-        // ==========================================
         const paddedData = [];
         
-        // Sesuaikan batas toleransi putus koneksi agar grafik tidak terpotong saat di-downsample
-        let GAP_THRESHOLD_MS = 60 * 1000; // Default 1 Menit
-        if (timeRange === "24H") GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 Jam 
-        if (timeRange === "7D" || timeRange === "30D") GAP_THRESHOLD_MS = 2 * 24 * 60 * 60 * 1000; // 2 Hari
+        let GAP_THRESHOLD_MS = 60 * 1000; 
+        if (timeRange === "24H") GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000; 
+        if (timeRange === "7D" || timeRange === "30D") GAP_THRESHOLD_MS = 2 * 24 * 60 * 60 * 1000; 
 
         for (let i = 0; i < downsampledData.length; i++) {
           const currentItem = downsampledData[i];
@@ -110,11 +130,7 @@ export default function Analytic() {
           paddedData.push(currentItem);
         }
 
-        // ==========================================
-        // FORMAT DATA UNTUK RECHARTS 
-        // ==========================================
         const formattedData = paddedData.map((item) => {
-          
           const dateObj = new Date(item.timestamp);
           const unixTimeMs = dateObj.getTime(); 
 
@@ -158,33 +174,20 @@ export default function Analytic() {
     };
 
     fetchHistoryData();
-  }, [timeRange]); 
+  }, [timeRange, selectedBatteryId]); // Akan fetch ulang jika waktu ATAU baterai diganti
 
-  const handleLogout = () => {
-    router.push("/");
-  };
+  const handleLogout = () => router.push("/");
 
-  // ==========================================
-  // CUSTOM FORMATTER SUMBU X
-  // ==========================================
   const formatXAxis = (tickItem) => {
     const dateObj = new Date(tickItem);
-    // 1 Menit: Tampilkan detail sampai detik (Contoh: 21:05:30)
-    if (timeRange === "1M") {
-      return dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    }
-    // 1 Jam & 24 Jam: Tampilkan Jam:Menit (Contoh: 21:05)
-    if (timeRange === "1H" || timeRange === "24H") {
-      return dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' });
-    }
-    // 7 Hari & 30 Hari: Tampilkan Tanggal/Bulan (Contoh: 29/05)
+    if (timeRange === "1M") return dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    if (timeRange === "1H" || timeRange === "24H") return dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' });
     return dateObj.toLocaleDateString("id-ID", { day: '2-digit', month: '2-digit' });
   };
 
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
       const timeLabel = payload[0].payload.fullTime; 
-      
       return (
         <div className="bg-white p-4 rounded-xl shadow-lg border border-slate-100">
           <p className="text-slate-500 font-bold mb-2">{`Time: ${timeLabel}`}</p>
@@ -206,7 +209,7 @@ export default function Analytic() {
   return (
     <div className="flex min-h-screen bg-[#f4f7fe] text-slate-800 font-sans">
       
-      {/* SIDEBAR NAVIGASI KIRI - DIPERBARUI DENGAN STICKY DAN H-SCREEN */}
+      {/* SIDEBAR NAVIGASI KIRI */}
       <aside className="w-64 bg-white flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20 border-r border-slate-100 sticky top-0 h-screen flex-shrink-0">
         <div className="p-8 flex items-center gap-3">
           <Image src="/logo-bh.png" alt="B-Hero Logo" width={36} height={36} className="object-contain" priority style={{ width: 'auto', height: 'auto' }}/>
@@ -220,7 +223,6 @@ export default function Analytic() {
             </svg>
             Dashboard
           </Link>
-          
           <Link href="/analytic" className="flex items-center gap-4 bg-[#333866] text-white px-5 py-3.5 rounded-2xl font-bold transition-all shadow-md shadow-[#333866]/20">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
               <path fillRule="evenodd" d="M2.25 13.5a8.25 8.25 0 0 1 8.25-8.25.75.75 0 0 1 .75.75v6.75H18a.75.75 0 0 1 .75.75 8.25 8.25 0 0 1-16.5 0Z" clipRule="evenodd" />
@@ -228,19 +230,16 @@ export default function Analytic() {
             </svg>
             Analytic
           </Link>
-
           <Link href="/reports" className="flex items-center gap-4 text-slate-400 hover:text-[#333866] hover:bg-slate-50 px-5 py-3.5 rounded-2xl font-semibold transition-all">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
             Reports
           </Link>
-
           <Link href="/about" className="flex items-center gap-4 text-slate-400 hover:text-[#333866] hover:bg-slate-50 px-5 py-3.5 rounded-2xl font-semibold transition-all">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" /></svg>
             About Us
           </Link>
         </nav>
 
-        {/* TOMBOL LOG OUT - DITAMBAHKAN MT-AUTO */}
         <div className="p-6 mt-auto">
           <button onClick={handleLogout} className="w-full flex items-center gap-4 text-slate-400 hover:text-red-500 hover:bg-red-50 px-5 py-3.5 rounded-2xl font-bold transition-all">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" /></svg>
@@ -251,49 +250,54 @@ export default function Analytic() {
 
       <main className="flex-1 p-8 md:p-10 overflow-y-auto">
         
-        <header className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <header className="mb-8 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
           <div>
             <h1 className="text-[32px] font-extrabold text-[#333866] tracking-tight">Data Analytics</h1>
-            <p className="text-slate-500 font-medium mt-1">Detailed historical trends of your 13S Battery Pack.</p>
+            <p className="text-slate-500 font-medium mt-1">Detailed historical trends of your Battery Pack.</p>
           </div>
           
-          <div className="flex bg-white rounded-xl shadow-sm border border-slate-200 p-1 overflow-x-auto">
-            <button 
-              onClick={() => setTimeRange("1M")} 
-              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "1M" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
-            >
-              1M
-            </button>
-            <button 
-              onClick={() => setTimeRange("1H")} 
-              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "1H" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
-            >
-              1H
-            </button>
-            <button 
-              onClick={() => setTimeRange("24H")} 
-              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "24H" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
-            >
-              24H
-            </button>
-            <button 
-              onClick={() => setTimeRange("7D")} 
-              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "7D" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
-            >
-              7D
-            </button>
-            <button 
-              onClick={() => setTimeRange("30D")} 
-              className={`px-5 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "30D" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}
-            >
-              30D
-            </button>
+          <div className="flex flex-col sm:flex-row items-center gap-3">
+            
+            {/* ========================================================= */}
+            {/* UI: DROPDOWN PEMILIH BATERAI */}
+            {/* ========================================================= */}
+            <div className="flex items-center gap-3 bg-white px-5 py-2.5 rounded-xl shadow-sm border border-slate-200 w-full sm:w-auto">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-emerald-500">
+                <path fillRule="evenodd" d="M14.615 1.595a.75.75 0 0 1 .359.852L12.982 9.75h7.268a.75.75 0 0 1 .548 1.262l-10.5 11.25a.75.75 0 0 1-1.272-.71l1.992-7.302H3.75a.75.75 0 0 1-.548-1.262l10.5-11.25a.75.75 0 0 1 .913-.143Z" clipRule="evenodd" />
+              </svg>
+              <div className="flex flex-col flex-1">
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Asset</span>
+                <select
+                  value={selectedBatteryId}
+                  onChange={(e) => setSelectedBatteryId(e.target.value)}
+                  className="bg-transparent font-bold text-[#333866] text-sm outline-none cursor-pointer border-none p-0 focus:ring-0 appearance-none pr-6 relative"
+                  style={{ backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23333866%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right center", backgroundSize: "8px" }}
+                >
+                  {batteryIds.length === 0 ? (
+                    <option value="">Searching...</option>
+                  ) : (
+                    batteryIds.map(id => (
+                      <option key={id} value={id}>{id}</option>
+                    ))
+                  )}
+                </select>
+              </div>
+            </div>
+
+            {/* Filter Waktu */}
+            <div className="flex bg-white rounded-xl shadow-sm border border-slate-200 p-1 overflow-x-auto w-full sm:w-auto">
+              <button onClick={() => setTimeRange("1M")} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "1M" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}>1M</button>
+              <button onClick={() => setTimeRange("1H")} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "1H" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}>1H</button>
+              <button onClick={() => setTimeRange("24H")} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "24H" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}>24H</button>
+              <button onClick={() => setTimeRange("7D")} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "7D" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}>7D</button>
+              <button onClick={() => setTimeRange("30D")} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "30D" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}>30D</button>
+            </div>
+
           </div>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           
-          {/* 1. GRAFIK VOLTASE */}
           <div className="lg:col-span-2 bg-white rounded-[2rem] p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
             <h2 className="text-xl font-black text-[#333866] mb-6">Voltage History (V)</h2>
             <div className="w-full h-72">
@@ -315,7 +319,6 @@ export default function Analytic() {
             </div>
           </div>
 
-          {/* 2. GRAFIK ARUS */}
           <div className="bg-white rounded-[2rem] p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
             <h2 className="text-xl font-black text-[#333866] mb-6">Current Flow (A)</h2>
             <div className="w-full h-64">
@@ -331,7 +334,6 @@ export default function Analytic() {
             </div>
           </div>
 
-          {/* 3. GRAFIK SUHU */}
           <div className="bg-white rounded-[2rem] p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
             <h2 className="text-xl font-black text-[#333866] mb-6">Avg Temperature (°C)</h2>
             <div className="w-full h-64">
@@ -353,7 +355,6 @@ export default function Analytic() {
             </div>
           </div>
 
-          {/* 4. GRAFIK SOC */}
           <div className="bg-white rounded-[2rem] p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
             <h2 className="text-xl font-black text-[#333866] mb-6">State of Charge (%)</h2>
             <div className="w-full h-64">
@@ -369,7 +370,6 @@ export default function Analytic() {
             </div>
           </div>
 
-          {/* 5. GRAFIK SOH */}
           <div className="bg-white rounded-[2rem] p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
             <h2 className="text-xl font-black text-[#333866] mb-6">State of Health (%)</h2>
             <div className="w-full h-64">

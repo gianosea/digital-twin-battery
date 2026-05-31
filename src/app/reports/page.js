@@ -14,23 +14,60 @@ export default function Reports() {
   const [isLoading, setIsLoading] = useState(true);
   
   // ==========================================
+  // STATE UNTUK PEMILIHAN BATERAI (BARU)
+  // ==========================================
+  const [batteryIds, setBatteryIds] = useState([]);
+  const [selectedBatteryId, setSelectedBatteryId] = useState("");
+
+  // ==========================================
   // STATE UNTUK FILTER WAKTU
   // ==========================================
   const [filterType, setFilterType] = useState("all"); 
-  const [customDate, setCustomDate] = useState(""); // Untuk format YYYY-MM-DD
-  const [customMonth, setCustomMonth] = useState(""); // Untuk format YYYY-MM
+  const [customDate, setCustomDate] = useState(""); 
+  const [customMonth, setCustomMonth] = useState(""); 
 
   // State untuk Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 30;
 
+  // ==========================================
+  // EFFECT 1: MENGAMBIL DAFTAR ID BATERAI UNIK
+  // ==========================================
   useEffect(() => {
+    const fetchBatteryIds = async () => {
+      const { data, error } = await supabase
+        .from('battery_logs')
+        .select('battery_id')
+        .order('timestamp', { ascending: false })
+        .limit(2000);
+
+      if (data && !error) {
+        const uniqueIds = [...new Set(data.map(item => item.battery_id).filter(Boolean))];
+        setBatteryIds(uniqueIds);
+        
+        if (uniqueIds.length > 0) {
+          setSelectedBatteryId(uniqueIds[0]);
+        }
+      }
+    };
+    fetchBatteryIds();
+  }, []);
+
+  // ==========================================
+  // EFFECT 2: FETCH TABEL BERDASARKAN FILTER & ID
+  // ==========================================
+  useEffect(() => {
+    // Jangan jalankan query jika ID baterai belum ada
+    if (!selectedBatteryId) return;
+
     const fetchReportsData = async () => {
       setIsLoading(true);
       
+      // Query dengan filter ID baterai
       let query = supabase
         .from('battery_logs') 
         .select('*')
+        .eq('battery_id', selectedBatteryId) // <--- FILTER BERDASARKAN DROPDOWN
         .order('timestamp', { ascending: false })
         .limit(500); 
 
@@ -50,7 +87,6 @@ export default function Reports() {
         query = query.gte('timestamp', start.toISOString());
       } 
       else if (filterType === "specific_date" && customDate) {
-        // Filter untuk 1 Hari Penuh (Dari jam 00:00 sampai 23:59)
         const startOfDay = new Date(customDate);
         startOfDay.setHours(0, 0, 0, 0);
         
@@ -62,12 +98,11 @@ export default function Reports() {
           .lte('timestamp', endOfDay.toISOString());
       } 
       else if (filterType === "specific_month" && customMonth) {
-        // Filter untuk 1 Bulan Penuh (Dari tgl 1 sampai tanggal terakhir di bulan itu)
         const [year, month] = customMonth.split("-");
         const startOfMonth = new Date(year, month - 1, 1);
         startOfMonth.setHours(0, 0, 0, 0);
 
-        const endOfMonth = new Date(year, month, 0); // Angka 0 otomatis menunjuk ke hari terakhir bulan sebelumnya
+        const endOfMonth = new Date(year, month, 0); 
         endOfMonth.setHours(23, 59, 59, 999);
 
         query = query
@@ -118,7 +153,7 @@ export default function Reports() {
     };
 
     fetchReportsData();
-  }, [filterType, customDate, customMonth]); // Query akan dieksekusi ulang jika salah satu state ini berubah
+  }, [filterType, customDate, customMonth, selectedBatteryId]); // Ditambah trigger selectedBatteryId
 
   const handleLogout = () => {
     router.push("/");
@@ -176,19 +211,20 @@ export default function Reports() {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Battery Data");
     
-    // Penamaan file excel dinamis berdasarkan filter
+    // Penamaan file excel dinamis berdasarkan filter DAN ID Baterai
     let fileNameStr = "ALL";
     if (filterType === "specific_date" && customDate) fileNameStr = customDate;
     else if (filterType === "specific_month" && customMonth) fileNameStr = customMonth;
     else fileNameStr = filterType.toUpperCase();
 
-    XLSX.writeFile(workbook, `BHERO_13S_Report_${fileNameStr}.xlsx`);
+    // Export format: BHERO_IDBATERAI_Report_WAKTU.xlsx
+    XLSX.writeFile(workbook, `BHERO_${selectedBatteryId}_Report_${fileNameStr}.xlsx`);
   };
 
   return (
     <div className="flex min-h-screen bg-[#f4f7fe] text-slate-800 font-sans">
       
-      {/* SIDEBAR NAVIGASI KIRI - DIPERBARUI DENGAN STICKY DAN H-SCREEN */}
+      {/* SIDEBAR NAVIGASI KIRI */}
       <aside className="w-64 bg-white flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20 border-r border-slate-100 sticky top-0 h-screen flex-shrink-0">
         <div className="p-8 flex items-center gap-3">
           <Image src="/logo-bh.png" alt="B-Hero Logo" width={36} height={36} className="object-contain" style={{ width: 'auto', height: 'auto' }} priority />
@@ -223,7 +259,6 @@ export default function Reports() {
           </Link>
         </nav>
 
-        {/* TOMBOL LOG OUT - DITAMBAHKAN MT-AUTO */}
         <div className="p-6 mt-auto">
           <button onClick={handleLogout} className="w-full flex items-center gap-4 text-slate-400 hover:text-red-500 hover:bg-red-50 px-5 py-3.5 rounded-2xl font-bold transition-all">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" /></svg>
@@ -244,6 +279,35 @@ export default function Reports() {
           {/* Kontainer Tombol & Filter */}
           <div className="flex flex-col sm:flex-row items-center gap-3">
             
+            {/* ========================================================= */}
+            {/* UI: DROPDOWN PEMILIH BATERAI (BARU) */}
+            {/* ========================================================= */}
+            <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl shadow-sm border border-slate-200">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-emerald-500">
+                <path fillRule="evenodd" d="M14.615 1.595a.75.75 0 0 1 .359.852L12.982 9.75h7.268a.75.75 0 0 1 .548 1.262l-10.5 11.25a.75.75 0 0 1-1.272-.71l1.992-7.302H3.75a.75.75 0 0 1-.548-1.262l10.5-11.25a.75.75 0 0 1 .913-.143Z" clipRule="evenodd" />
+              </svg>
+              <div className="flex flex-col">
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Asset</span>
+                <select
+                  value={selectedBatteryId}
+                  onChange={(e) => {
+                    setSelectedBatteryId(e.target.value);
+                    setCurrentPage(1); // Reset page saat ganti baterai
+                  }}
+                  className="bg-transparent font-bold text-[#333866] text-sm outline-none cursor-pointer border-none p-0 focus:ring-0 appearance-none pr-5 relative"
+                  style={{ backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23333866%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right center", backgroundSize: "8px" }}
+                >
+                  {batteryIds.length === 0 ? (
+                    <option value="">Searching...</option>
+                  ) : (
+                    batteryIds.map(id => (
+                      <option key={id} value={id}>{id}</option>
+                    ))
+                  )}
+                </select>
+              </div>
+            </div>
+
             {/* Conditional Input TANGGAL/BULAN SPESIFIK */}
             {filterType === "specific_date" && (
               <input 
