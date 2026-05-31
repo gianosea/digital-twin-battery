@@ -4,31 +4,63 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import Link from "next/link";
-// Import koneksi Supabase menggunakan alias @ agar terhindar dari error path
 import { supabase } from "@/utils/supabase"; 
 
 export default function Dashboard() {
   const router = useRouter();
 
-  // State Baterai (Nilai Default saat loading)
+  // ==========================================
+  // 1. STATE UNTUK PEMILIHAN BATERAI DINAMIS
+  // ==========================================
+  const [batteryIds, setBatteryIds] = useState([]);
+  const [selectedBatteryId, setSelectedBatteryId] = useState("");
+
   const [batteryData, setBatteryData] = useState({
-    soc: 0,
-    soh: 0,
-    cycle_count: 0,
-    current: 0,
-    total_voltage: 0,
-    status: "LOADING DATA...",
+    soc: 0, soh: 0, cycle_count: 0, current: 0, total_voltage: 0, status: "SCANNING ASSETS...",
     temperatures: { region1: 0, region2: 0, region3: 0, region4: 0, region5: 0, region6: 0 },
     cells: Array.from({ length: 13 }, (_, i) => ({ id: i + 1, voltage: 0, state: "normal" }))
   });
 
-  // Logika Fetch & Realtime Supabase
+  // ==========================================
+  // 2. DETEKSI OTOMATIS BATTERY ID DARI SUPABASE
+  // ==========================================
   useEffect(() => {
-    // Fungsi untuk memetakan data Supabase ke State React
+    const fetchBatteryIds = async () => {
+      // Ambil riwayat log terbaru untuk mencari ID apa saja yang pernah mengirim data
+      const { data, error } = await supabase
+        .from('battery_logs')
+        .select('battery_id')
+        .order('timestamp', { ascending: false })
+        .limit(2000); 
+
+      if (data && !error) {
+        // Fungsi Set() akan otomatis membuang nama ID yang duplikat
+        const uniqueIds = [...new Set(data.map(item => item.battery_id).filter(Boolean))];
+        setBatteryIds(uniqueIds);
+        
+        // Langsung pilih baterai pertama yang terdeteksi
+        if (uniqueIds.length > 0) {
+          setSelectedBatteryId(uniqueIds[0]);
+        } else {
+          setBatteryData(prev => ({ ...prev, status: "NO BATTERY FOUND" }));
+        }
+      }
+    };
+    
+    fetchBatteryIds();
+  }, []); // Hanya berjalan 1x saat halaman dimuat
+
+  // ==========================================
+  // 3. FETCH & REALTIME BERDASARKAN BATERAI YANG DIPILIH
+  // ==========================================
+  useEffect(() => {
+    if (!selectedBatteryId) return;
+
+    setBatteryData(prev => ({ ...prev, status: `CONNECTING TO ${selectedBatteryId}...` }));
+
     const updateDashboardState = (data) => {
       if (!data) return;
 
-      // Fungsi penentu warna/state sel baterai
       const evaluateState = (voltage) => {
         if (voltage < 3.0) return "warning";
         if (voltage > 4.2) return "danger";
@@ -43,65 +75,54 @@ export default function Dashboard() {
         total_voltage: data.total_voltage ?? 0,
         status: data.status ?? "SYSTEM NORMAL",
         temperatures: { 
-          region1: data.temperature_1 ?? 0, 
-          region2: data.temperature_2 ?? 0, 
-          region3: data.temperature_3 ?? 0, 
-          region4: data.temperature_4 ?? 0, 
-          region5: data.temperature_5 ?? 0, 
-          region6: data.temperature_6 ?? 0
+          region1: data.temperature_1 ?? 0, region2: data.temperature_2 ?? 0, region3: data.temperature_3 ?? 0, 
+          region4: data.temperature_4 ?? 0, region5: data.temperature_5 ?? 0, region6: data.temperature_6 ?? 0
         },
-        cells: [
-          { id: 1, voltage: data.cell1_voltage ?? 0, state: evaluateState(data.cell1_voltage) },
-          { id: 2, voltage: data.cell2_voltage ?? 0, state: evaluateState(data.cell2_voltage) },
-          { id: 3, voltage: data.cell3_voltage ?? 0, state: evaluateState(data.cell3_voltage) },
-          { id: 4, voltage: data.cell4_voltage ?? 0, state: evaluateState(data.cell4_voltage) },
-          { id: 5, voltage: data.cell5_voltage ?? 0, state: evaluateState(data.cell5_voltage) },
-          { id: 6, voltage: data.cell6_voltage ?? 0, state: evaluateState(data.cell6_voltage) },
-          { id: 7, voltage: data.cell7_voltage ?? 0, state: evaluateState(data.cell7_voltage) },
-          { id: 8, voltage: data.cell8_voltage ?? 0, state: evaluateState(data.cell8_voltage) },
-          { id: 9, voltage: data.cell9_voltage ?? 0, state: evaluateState(data.cell9_voltage) },
-          { id: 10, voltage: data.cell10_voltage ?? 0, state: evaluateState(data.cell10_voltage) },
-          { id: 11, voltage: data.cell11_voltage ?? 0, state: evaluateState(data.cell11_voltage) },
-          { id: 12, voltage: data.cell12_voltage ?? 0, state: evaluateState(data.cell12_voltage) },
-          { id: 13, voltage: data.cell13_voltage ?? 0, state: evaluateState(data.cell13_voltage) },
-        ]
+        cells: Array.from({ length: 13 }, (_, i) => ({
+          id: i + 1,
+          voltage: data[`cell${i + 1}_voltage`] ?? 0,
+          state: evaluateState(data[`cell${i + 1}_voltage`])
+        }))
       });
     };
 
-    // 1. Ambil data baris terakhir saat buka web
+    // Ambil 1 data terakhir khusus untuk baterai ini
     const fetchInitialData = async () => {
       const { data, error } = await supabase
         .from('battery_logs') 
         .select('*')
+        .eq('battery_id', selectedBatteryId) // Filter Supabase
         .order('timestamp', { ascending: false })
         .limit(1)
         .single();
 
       if (data && !error) {
         updateDashboardState(data);
-      } else if (error) {
-        console.error("Error fetching data:", error.message);
       }
     };
 
     fetchInitialData();
 
-    // 2. Langganan (Subscribe) ke perubahan data Real-time
+    // Berlangganan data baru khusus untuk baterai ini
     const channel = supabase
-      .channel('realtime_battery')
+      .channel(`realtime_${selectedBatteryId}`)
       .on('postgres_changes', 
-        { event: 'INSERT', schema: 'public', table: 'battery_logs' },
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'battery_logs',
+          filter: `battery_id=eq.${selectedBatteryId}` // Filter Realtime Supabase
+        },
         (payload) => {
           updateDashboardState(payload.new);
         }
       )
       .subscribe();
 
-    // Cleanup memori saat pindah halaman
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [selectedBatteryId]); // Akan otomatis memuat ulang data jika dropdown diganti
 
   const handleLogout = () => {
     router.push("/");
@@ -112,41 +133,23 @@ export default function Dashboard() {
   return (
     <div className="flex min-h-screen bg-[#f4f7fe] text-slate-800 font-sans">
       
-      {/* ========================================================= */}
-      {/* SIDEBAR NAVIGASI KIRI - SEKARANG STICKY & H-SCREEN */}
-      {/* ========================================================= */}
+      {/* SIDEBAR NAVIGASI KIRI */}
       <aside className="w-64 bg-white flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20 border-r border-slate-100 sticky top-0 h-screen flex-shrink-0">
         
-        {/* Header Sidebar / Logo */}
         <div className="p-8 flex items-center gap-3">
-          <Image 
-            src="/logo-bh.png" 
-            alt="B-Hero Logo" 
-            width={36} 
-            height={36} 
-            className="object-contain" 
-            style={{ width: 'auto', height: 'auto' }} 
-            priority 
-          />
+          <Image src="/logo-bh.png" alt="B-Hero Logo" width={36} height={36} className="object-contain" style={{ width: 'auto', height: 'auto' }} priority />
           <span className="text-2xl font-black tracking-tight text-[#333866]">B-HERO</span>
         </div>
 
-        {/* Menu Navigasi */}
         <nav className="flex-1 px-4 flex flex-col gap-2">
-          {/* Active Menu */}
           <Link href="/dashboard" className="flex items-center gap-4 bg-[#333866] text-white px-5 py-3.5 rounded-2xl font-bold transition-all shadow-md shadow-[#333866]/20">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
               <path fillRule="evenodd" d="M3 6a3 3 0 0 1 3-3h2.25a3 3 0 0 1 3 3v2.25a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6Zm9.75 0a3 3 0 0 1 3-3H18a3 3 0 0 1 3 3v2.25a3 3 0 0 1-3 3h-2.25a3 3 0 0 1-3-3V6ZM3 15.75a3 3 0 0 1 3-3h2.25a3 3 0 0 1 3 3V18a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-2.25Zm9.75 0a3 3 0 0 1 3-3H18a3 3 0 0 1 3 3V18a3 3 0 0 1-3 3h-2.25a3 3 0 0 1-3-3v-2.25Z" clipRule="evenodd" />
             </svg>
             Dashboard
           </Link>
-          
-          {/* Inactive Menus */}
           <Link href="/analytic" className="flex items-center gap-4 text-slate-400 hover:text-[#333866] hover:bg-slate-50 px-5 py-3.5 rounded-2xl font-semibold transition-all">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z" />
-            </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z" /></svg>
             Analytic
           </Link>
           <Link href="/reports" className="flex items-center gap-4 text-slate-400 hover:text-[#333866] hover:bg-slate-50 px-5 py-3.5 rounded-2xl font-semibold transition-all">
@@ -159,43 +162,64 @@ export default function Dashboard() {
           </Link>
         </nav>
 
-        {/* Tombol Logout */}
         <div className="p-6 mt-auto">
-          <button 
-            onClick={handleLogout}
-            className="w-full flex items-center gap-4 text-slate-400 hover:text-red-500 hover:bg-red-50 px-5 py-3.5 rounded-2xl font-bold transition-all"
-          >
+          <button onClick={handleLogout} className="w-full flex items-center gap-4 text-slate-400 hover:text-red-500 hover:bg-red-50 px-5 py-3.5 rounded-2xl font-bold transition-all">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" /></svg>
             Log Out
           </button>
         </div>
       </aside>
 
-      {/* ========================================================= */}
-      {/* KONTEN UTAMA DASHBOARD */}
-      {/* ========================================================= */}
       <main className="flex-1 p-8 md:p-10 overflow-y-auto">
         
-        {/* Header Halaman */}
-        <header className="mb-8">
-          <h1 className="text-[32px] font-extrabold text-[#333866] tracking-tight">Welcome Back, B-Hero</h1>
-          <p className="text-slate-500 font-medium mt-1">Here is your 13s battery pack information today.</p>
+        {/* ========================================================= */}
+        {/* HEADER DENGAN DROPDOWN BATERAI */}
+        {/* ========================================================= */}
+        <header className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-[32px] font-extrabold text-[#333866] tracking-tight">Welcome Back, B-Hero</h1>
+            <p className="text-slate-500 font-medium mt-1">Here is your battery pack information today.</p>
+          </div>
+          
+          <div className="flex items-center gap-3 bg-white px-5 py-3 rounded-2xl shadow-[0_4px_12px_rgba(0,0,0,0.03)] border border-slate-100">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-emerald-500">
+              <path fillRule="evenodd" d="M14.615 1.595a.75.75 0 0 1 .359.852L12.982 9.75h7.268a.75.75 0 0 1 .548 1.262l-10.5 11.25a.75.75 0 0 1-1.272-.71l1.992-7.302H3.75a.75.75 0 0 1-.548-1.262l10.5-11.25a.75.75 0 0 1 .913-.143Z" clipRule="evenodd" />
+            </svg>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Active Asset</span>
+              <select
+                value={selectedBatteryId}
+                onChange={(e) => setSelectedBatteryId(e.target.value)}
+                className="bg-transparent font-black text-[#333866] text-sm md:text-base outline-none cursor-pointer border-none p-0 focus:ring-0 appearance-none pr-6 relative"
+                style={{ backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23333866%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right center", backgroundSize: "10px" }}
+              >
+                {batteryIds.length === 0 ? (
+                  <option value="">Searching...</option>
+                ) : (
+                  batteryIds.map(id => (
+                    <option key={id} value={id}>{id}</option>
+                  ))
+                )}
+              </select>
+            </div>
+          </div>
         </header>
 
-        {/* ========================================================= */}
         {/* BARIS 1: PANEL DIAGNOSTIK GABUNGAN */}
-        {/* ========================================================= */}
         <div className="bg-white rounded-[2rem] p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] mb-8">
           
-          {/* Header Status */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4 border-b border-slate-100 pb-6">
             <h2 className="text-2xl font-black text-[#333866]">System Diagnostic</h2>
             
-            <div className={`border px-5 py-2.5 rounded-full font-black text-sm animate-pulse flex items-center gap-2 shadow-sm ${
-              batteryData.status === "SYSTEM NORMAL" ? "bg-emerald-50 text-emerald-600 border-emerald-200" : "bg-red-50/80 text-red-600 border-red-200"
+            <div className={`border px-5 py-2.5 rounded-full font-black text-sm flex items-center gap-2 shadow-sm ${
+              batteryData.status === "SYSTEM NORMAL" ? "bg-emerald-50 text-emerald-600 border-emerald-200 animate-pulse" : 
+              batteryData.status.includes("CONNECTING") || batteryData.status.includes("SCANNING") ? "bg-slate-50 text-slate-500 border-slate-200" :
+              "bg-red-50/80 text-red-600 border-red-200 animate-pulse"
             }`}>
               {batteryData.status === "SYSTEM NORMAL" ? (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm13.36-1.814a.75.75 0 1 0-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 0 0-1.06 1.06l2.25 2.25a.75.75 0 0 0 1.14-.094l3.75-5.25Z" clipRule="evenodd" /></svg>
+              ) : batteryData.status.includes("CONNECTING") || batteryData.status.includes("SCANNING") ? (
+                <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
               ) : (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path fillRule="evenodd" d="M9.401 3.003c1.155-2 4.043-2 5.197 0l7.355 12.748c1.154 2-.29 4.5-2.599 4.5H4.645c-2.309 0-3.752-2.5-2.598-4.5L9.4 3.003ZM12 8.25a.75.75 0 0 1 .75.75v3.75a.75.75 0 0 1-1.5 0V9a.75.75 0 0 1 .75-.75Zm0 8.25a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" clipRule="evenodd" /></svg>
               )}
@@ -203,10 +227,8 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Ilustrasi Pack Baterai (Desain Silinder 3D Dinamis) */}
           <div className="bg-[#f8f9fa] rounded-3xl p-8 flex flex-col items-center justify-center mb-8 relative overflow-hidden">
             
-            {/* 6 REGION SUHU DENGAN GRID */}
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-4 sm:gap-6 w-full max-w-4xl mb-10 px-2 text-[10px] sm:text-xs font-black text-slate-400 uppercase tracking-widest z-10 text-center">
               <div className={`flex flex-col items-center ${batteryData.temperatures.region1 > 40 ? "text-red-500 scale-110 transition-transform" : ""}`}>
                 <span className="mb-1">Region 1</span>
@@ -285,12 +307,9 @@ export default function Dashboard() {
 
         </div>
 
-        {/* ========================================================= */}
-        {/* BARIS 2: SoC & SoH DENGAN GAUGE SETENGAH LINGKARAN */}
-        {/* ========================================================= */}
+        {/* BARIS 2: SoC & SoH */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           
-          {/* Panel State of Charge */}
           <div className="bg-white rounded-[2rem] p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col items-center justify-center">
             <h2 className="text-lg font-black text-[#333866] mb-8">State Of Charge</h2>
             
@@ -304,7 +323,7 @@ export default function Dashboard() {
                   strokeWidth="24" 
                   strokeLinecap="round" 
                   strokeDasharray={circ} 
-                  strokeDashoffset={circ - (circ * batteryData.soc / 100)} 
+                  strokeDashoffset={circ - (circ * Math.max(0, batteryData.soc) / 100)} 
                   className="transition-all duration-1000 ease-out drop-shadow-md"
                 />
               </svg>
@@ -318,7 +337,6 @@ export default function Dashboard() {
             <p className="text-sm font-bold text-slate-400">Current Battery Level</p>
           </div>
 
-          {/* Panel State of Health */}
           <div className="bg-white rounded-[2rem] p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col items-center justify-center">
             <h2 className="text-lg font-black text-[#333866] mb-8">State Of Health</h2>
             
@@ -332,7 +350,7 @@ export default function Dashboard() {
                   strokeWidth="24" 
                   strokeLinecap="round" 
                   strokeDasharray={circ} 
-                  strokeDashoffset={circ - (circ * batteryData.soh / 100)} 
+                  strokeDashoffset={circ - (circ * Math.max(0, batteryData.soh) / 100)} 
                   className="transition-all duration-1000 ease-out drop-shadow-md"
                 />
               </svg>
@@ -347,12 +365,9 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* ========================================================= */}
         {/* BARIS 3: TOTAL VOLTAGE, CURRENT, CYCLE COUNT */}
-        {/* ========================================================= */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-8">
           
-          {/* Panel Total Voltage */}
           <div className="bg-white rounded-[2rem] p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col items-center justify-center">
             <h2 className="text-lg font-black text-[#333866] mb-4">Total Voltage</h2>
             <div className="flex-1 flex items-center justify-center py-6">
@@ -363,7 +378,6 @@ export default function Dashboard() {
             <p className="text-sm font-bold text-slate-400">Pack Output Voltage</p>
           </div>
 
-          {/* Panel Current */}
           <div className="bg-white rounded-[2rem] p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col items-center justify-center">
             <h2 className="text-lg font-black text-[#333866] mb-4">Pack Current</h2>
             <div className="flex-1 flex items-center justify-center py-6">
@@ -374,7 +388,6 @@ export default function Dashboard() {
             <p className="text-sm font-bold text-slate-400">Real-time Current Load</p>
           </div>
 
-          {/* Panel Cycle Count */}
           <div className="bg-white rounded-[2rem] p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col items-center justify-center">
             <h2 className="text-lg font-black text-[#333866] mb-4">Cycle Count</h2>
             <div className="flex-1 flex items-center justify-center py-6">
