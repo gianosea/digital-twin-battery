@@ -18,8 +18,8 @@ export default function Analytic() {
   const [historyData, setHistoryData] = useState([]);
   
   // State Filter Baru
-  const [filterType, setFilterType] = useState("custom_limit"); // Diubah menjadi custom_limit
-  const [customLimit, setCustomLimit] = useState(500); // State baru untuk batas custom
+  const [filterType, setFilterType] = useState("custom_limit");
+  const [customLimit, setCustomLimit] = useState(500); 
   const [specificDate, setSpecificDate] = useState("");
   const [specificMonth, setSpecificMonth] = useState("");
 
@@ -62,37 +62,29 @@ export default function Analytic() {
         .eq('battery_id', selectedBatteryId) 
         .order('timestamp', { ascending: false });
 
-      let GAP_THRESHOLD_MS = 60 * 1000; // Default 1 menit
-
       // 1. Logika Kueri Berdasarkan Filter
       if (filterType === "custom_limit") {
-        // Menggunakan state customLimit, pastikan minimal 1 agar tidak error
         query = query.limit(customLimit > 0 ? customLimit : 1);
-        GAP_THRESHOLD_MS = 60 * 1000;
 
       } else if (filterType === "today") {
         const start = new Date();
         start.setHours(0, 0, 0, 0); 
         query = query.gte('timestamp', start.toISOString()).limit(5000);
-        GAP_THRESHOLD_MS = 5 * 60 * 1000; 
 
       } else if (filterType === "week") {
         const start = new Date();
         start.setDate(start.getDate() - 7);
         query = query.gte('timestamp', start.toISOString()).limit(20000);
-        GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000; 
 
       } else if (filterType === "specific_month" && specificMonth) {
         const start = new Date(`${specificMonth}-01T00:00:00`);
         const end = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59);
         query = query.gte('timestamp', start.toISOString()).lte('timestamp', end.toISOString()).limit(50000);
-        GAP_THRESHOLD_MS = 2 * 24 * 60 * 60 * 1000; 
 
       } else if (filterType === "specific_date" && specificDate) {
         const start = new Date(`${specificDate}T00:00:00`);
         const end = new Date(`${specificDate}T23:59:59`);
         query = query.gte('timestamp', start.toISOString()).lte('timestamp', end.toISOString()).limit(5000);
-        GAP_THRESHOLD_MS = 5 * 60 * 1000; 
       } else if (filterType === "specific_date" || filterType === "specific_month") {
         query = query.limit(0); 
       }
@@ -119,37 +111,11 @@ export default function Analytic() {
         });
         
         const downsampledData = Object.values(grouped);
-        const paddedData = [];
         
-        // 3. Menambahkan Padding "0" jika data terputus
-        for (let i = 0; i < downsampledData.length; i++) {
-          const currentItem = downsampledData[i];
-          if (i > 0) {
-            const prevItem = downsampledData[i - 1];
-            const currentMs = new Date(currentItem.timestamp).getTime();
-            const prevMs = new Date(prevItem.timestamp).getTime();
-            
-            if (currentMs - prevMs > GAP_THRESHOLD_MS) {
-              paddedData.push({
-                timestamp: new Date((prevMs + currentMs) / 2).toISOString(), 
-                total_voltage: 0, 
-                current: 0, 
-                soc: 0, 
-                soh: 0,
-                temperature_1: 0, 
-                temperature_2: 0, 
-                temperature_3: 0, 
-                temperature_4: 0, 
-                temperature_5: 0, 
-                temperature_6: 0
-              });
-            }
-          }
-          paddedData.push(currentItem);
-        }
-
-        // 4. Formatting akhir
-        const formattedData = paddedData.map((item) => {
+        // --- BLOK PADDING DAHULU DIHAPUS DARI SINI ---
+        
+        // 3. Formatting akhir (langsung map dari downsampledData)
+        const formattedData = downsampledData.map((item) => {
           const dateObj = new Date(item.timestamp);
           const unixTimeMs = dateObj.getTime(); 
           let tooltipTimeString = dateObj.toLocaleString("id-ID", { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(',', '');
@@ -180,7 +146,6 @@ export default function Analytic() {
     };
 
     fetchHistoryData();
-  // Tambahkan customLimit ke dependency array agar chart update otomatis saat angkanya diubah
   }, [filterType, specificDate, specificMonth, selectedBatteryId, customLimit]); 
 
   const handleLogout = () => router.push("/");
@@ -201,7 +166,7 @@ export default function Analytic() {
           <p className="text-slate-500 font-bold mb-2">{`Time: ${timeLabel}`}</p>
           {payload.map((entry, index) => (
             <p key={index} style={{ color: entry.color }} className="font-black text-lg">
-              {entry.name}: {entry.value === 0 ? "0 (Offline/No Data)" : entry.value}
+              {entry.name}: {entry.value}
             </p>
           ))}
         </div>
