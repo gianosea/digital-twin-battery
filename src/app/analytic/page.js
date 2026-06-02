@@ -18,7 +18,8 @@ export default function Analytic() {
   const [historyData, setHistoryData] = useState([]);
   
   // State Filter Baru
-  const [filterType, setFilterType] = useState("last_500"); 
+  const [filterType, setFilterType] = useState("custom_limit"); // Diubah menjadi custom_limit
+  const [customLimit, setCustomLimit] = useState(500); // State baru untuk batas custom
   const [specificDate, setSpecificDate] = useState("");
   const [specificMonth, setSpecificMonth] = useState("");
 
@@ -64,35 +65,35 @@ export default function Analytic() {
       let GAP_THRESHOLD_MS = 60 * 1000; // Default 1 menit
 
       // 1. Logika Kueri Berdasarkan Filter
-      if (filterType === "last_500") {
-        query = query.limit(500);
+      if (filterType === "custom_limit") {
+        // Menggunakan state customLimit, pastikan minimal 1 agar tidak error
+        query = query.limit(customLimit > 0 ? customLimit : 1);
         GAP_THRESHOLD_MS = 60 * 1000;
 
       } else if (filterType === "today") {
         const start = new Date();
-        start.setHours(0, 0, 0, 0); // Mulai hari ini jam 00:00:00
+        start.setHours(0, 0, 0, 0); 
         query = query.gte('timestamp', start.toISOString()).limit(5000);
-        GAP_THRESHOLD_MS = 5 * 60 * 1000; // Gap 5 menit
+        GAP_THRESHOLD_MS = 5 * 60 * 1000; 
 
       } else if (filterType === "week") {
         const start = new Date();
         start.setDate(start.getDate() - 7);
         query = query.gte('timestamp', start.toISOString()).limit(20000);
-        GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000; // Gap 2 jam
+        GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000; 
 
       } else if (filterType === "specific_month" && specificMonth) {
         const start = new Date(`${specificMonth}-01T00:00:00`);
         const end = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59);
         query = query.gte('timestamp', start.toISOString()).lte('timestamp', end.toISOString()).limit(50000);
-        GAP_THRESHOLD_MS = 2 * 24 * 60 * 60 * 1000; // Gap 2 hari
+        GAP_THRESHOLD_MS = 2 * 24 * 60 * 60 * 1000; 
 
       } else if (filterType === "specific_date" && specificDate) {
         const start = new Date(`${specificDate}T00:00:00`);
         const end = new Date(`${specificDate}T23:59:59`);
         query = query.gte('timestamp', start.toISOString()).lte('timestamp', end.toISOString()).limit(5000);
-        GAP_THRESHOLD_MS = 5 * 60 * 1000; // Gap 5 menit
+        GAP_THRESHOLD_MS = 5 * 60 * 1000; 
       } else if (filterType === "specific_date" || filterType === "specific_month") {
-        // Jika belum memilih tanggal/bulan, batasi dulu agar tidak berat
         query = query.limit(0); 
       }
 
@@ -108,9 +109,8 @@ export default function Analytic() {
           let key;
           
           if (filterType === "week" || filterType === "specific_month") {
-            key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; // Group harian
+            key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; 
           } else if (filterType === "today" || filterType === "specific_date") {
-            // Group per 10 menit
             key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}-${Math.floor(d.getMinutes() / 10)}`; 
           } else {
             key = item.timestamp;
@@ -180,13 +180,14 @@ export default function Analytic() {
     };
 
     fetchHistoryData();
-  }, [filterType, specificDate, specificMonth, selectedBatteryId]);
+  // Tambahkan customLimit ke dependency array agar chart update otomatis saat angkanya diubah
+  }, [filterType, specificDate, specificMonth, selectedBatteryId, customLimit]); 
 
   const handleLogout = () => router.push("/");
 
   const formatXAxis = (tickItem) => {
     const dateObj = new Date(tickItem);
-    if (filterType === "last_500" || filterType === "today" || filterType === "specific_date") {
+    if (filterType === "custom_limit" || filterType === "today" || filterType === "specific_date") {
       return dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' });
     }
     return dateObj.toLocaleDateString("id-ID", { day: '2-digit', month: '2-digit' });
@@ -284,14 +285,14 @@ export default function Analytic() {
               </div>
             </div>
 
-            {/* DROPDOWN FILTER WAKTU (BARU) */}
+            {/* DROPDOWN FILTER WAKTU */}
             <div className="relative w-full sm:w-auto">
               <select 
                 value={filterType}
                 onChange={(e) => setFilterType(e.target.value)}
                 className="w-full appearance-none bg-white border border-slate-200 text-[#333866] px-5 py-3 pr-10 rounded-xl font-bold cursor-pointer hover:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all shadow-sm"
               >
-                <option value="last_500">Last 500 Records</option>
+                <option value="custom_limit">Last X Records</option>
                 <option value="today">Today</option>
                 <option value="week">Last Week</option>
                 <option value="specific_month">Specific Month</option>
@@ -301,6 +302,20 @@ export default function Analytic() {
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
               </div>
             </div>
+
+            {/* KONDISIONAL: MUNCUL INPUT ANGKA JIKA CUSTOM LIMIT TERPILIH */}
+            {filterType === "custom_limit" && (
+              <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-2.5 rounded-xl shadow-sm focus-within:ring-2 focus-within:ring-emerald-500/20 focus-within:border-emerald-500 transition-all">
+                <span className="text-sm font-bold text-slate-400">Last</span>
+                <input 
+                  type="number"
+                  min="1"
+                  value={customLimit}
+                  onChange={(e) => setCustomLimit(parseInt(e.target.value) || 0)}
+                  className="w-16 bg-transparent text-[#333866] font-bold outline-none text-center"
+                />
+              </div>
+            )}
 
             {/* KONDISIONAL: MUNCUL KALENDER JIKA SPECIFIC DATE TERPILIH */}
             {filterType === "specific_date" && (
