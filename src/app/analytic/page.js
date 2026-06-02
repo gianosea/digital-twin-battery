@@ -102,7 +102,7 @@ export default function Analytic() {
         const reversedData = data.reverse();
         const grouped = {};
         
-        // 2. Downsampling / Grouping (opsional, disesuaikan)
+        // 2. Downsampling / Grouping
         reversedData.forEach(item => {
           const d = new Date(item.timestamp);
           let key;
@@ -110,7 +110,7 @@ export default function Analytic() {
           if (filterType === "week" || filterType === "specific_month") {
             key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; // Group harian
           } else if (filterType === "today" || filterType === "specific_date") {
-            // Group per 10 menit (agar chart tidak terlalu padat jika data sangat banyak)
+            // Group per 10 menit
             key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}-${Math.floor(d.getMinutes() / 10)}`; 
           } else {
             key = item.timestamp;
@@ -121,7 +121,7 @@ export default function Analytic() {
         const downsampledData = Object.values(grouped);
         const paddedData = [];
         
-        // 3. Menambahkan Padding Null jika data terputus
+        // 3. Menambahkan Padding "0" jika data terputus
         for (let i = 0; i < downsampledData.length; i++) {
           const currentItem = downsampledData[i];
           if (i > 0) {
@@ -132,9 +132,16 @@ export default function Analytic() {
             if (currentMs - prevMs > GAP_THRESHOLD_MS) {
               paddedData.push({
                 timestamp: new Date((prevMs + currentMs) / 2).toISOString(), 
-                total_voltage: null, current: null, soc: null, soh: null,
-                temperature_1: null, temperature_2: null, temperature_3: null, 
-                temperature_4: null, temperature_5: null, temperature_6: null
+                total_voltage: 0, 
+                current: 0, 
+                soc: 0, 
+                soh: 0,
+                temperature_1: 0, 
+                temperature_2: 0, 
+                temperature_3: 0, 
+                temperature_4: 0, 
+                temperature_5: 0, 
+                temperature_6: 0
               });
             }
           }
@@ -146,10 +153,6 @@ export default function Analytic() {
           const dateObj = new Date(item.timestamp);
           const unixTimeMs = dateObj.getTime(); 
           let tooltipTimeString = dateObj.toLocaleString("id-ID", { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(',', '');
-
-          if (item.total_voltage === null) {
-            return { time: unixTimeMs, fullTime: tooltipTimeString, voltage: null, current: null, temp: null, soc: null, soh: null };
-          }
 
           const temp1 = item.temperature_1 ?? 0;
           const temp2 = item.temperature_2 ?? 0;
@@ -177,7 +180,7 @@ export default function Analytic() {
     };
 
     fetchHistoryData();
-  }, [filterType, specificDate, specificMonth, selectedBatteryId]); // Update otomatis saat filter/tanggal/baterai berubah
+  }, [filterType, specificDate, specificMonth, selectedBatteryId]);
 
   const handleLogout = () => router.push("/");
 
@@ -197,7 +200,7 @@ export default function Analytic() {
           <p className="text-slate-500 font-bold mb-2">{`Time: ${timeLabel}`}</p>
           {payload.map((entry, index) => (
             <p key={index} style={{ color: entry.color }} className="font-black text-lg">
-              {entry.name}: {entry.value !== null ? entry.value : "Offline/No Data"}
+              {entry.name}: {entry.value === 0 ? "0 (Offline/No Data)" : entry.value}
             </p>
           ))}
         </div>
@@ -221,7 +224,6 @@ export default function Analytic() {
         </div>
 
         <nav className="flex-1 px-4 flex flex-col gap-2">
-          {/* ... Navigation Links ... (Tetap sama) */}
           <Link href="/dashboard" className="flex items-center gap-4 text-slate-400 hover:text-[#333866] hover:bg-slate-50 px-5 py-3.5 rounded-2xl font-semibold transition-all">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" /></svg>
             Dashboard
@@ -323,7 +325,7 @@ export default function Analytic() {
           </div>
         </header>
 
-        {/* ... CHART WIDGETS BAWAH (Tetap Sama) ... */}
+        {/* CHART WIDGETS BAWAH */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           
           <div className="lg:col-span-2 bg-white rounded-[2rem] p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
