@@ -16,8 +16,12 @@ export default function Analytic() {
   // STATE UNTUK PEMILIHAN BATERAI & WAKTU
   // ==========================================
   const [historyData, setHistoryData] = useState([]);
-  const [timeRange, setTimeRange] = useState("1M"); 
   
+  // State Filter Baru
+  const [filterType, setFilterType] = useState("last_500"); 
+  const [specificDate, setSpecificDate] = useState("");
+  const [specificMonth, setSpecificMonth] = useState("");
+
   const [batteryIds, setBatteryIds] = useState([]);
   const [selectedBatteryId, setSelectedBatteryId] = useState("");
 
@@ -45,58 +49,69 @@ export default function Analytic() {
   }, []);
 
   // ==========================================
-  // EFFECT 2: FETCH DATA GRAFIK BERDASARKAN ID & WAKTU
+  // EFFECT 2: FETCH DATA GRAFIK BERDASARKAN ID & FILTER
   // ==========================================
   useEffect(() => {
-    // Tunggu sampai ID baterai sudah didapat dari Effect 1
     if (!selectedBatteryId) return;
 
     const fetchHistoryData = async () => {
-      const now = new Date();
-      let startDate = new Date();
-      let limitValue = 1000; 
-
-      if (timeRange === "1M") {
-        startDate.setMinutes(now.getMinutes() - 1);
-        limitValue = 150; 
-      } else if (timeRange === "1H") {
-        startDate.setHours(now.getHours() - 1);
-        limitValue = 1000;
-      } else if (timeRange === "24H") {
-        startDate.setHours(now.getHours() - 24);
-        limitValue = 20000; 
-      } else if (timeRange === "7D") {
-        startDate.setDate(now.getDate() - 7);
-        limitValue = 150000;
-      } else if (timeRange === "30D") {
-        startDate.setDate(now.getDate() - 30);
-        limitValue = 500000;
-      }
-
-      // Kueri dengan tambahan .eq() untuk memfilter berdasarkan Battery ID
       let query = supabase
         .from('battery_logs') 
         .select('*')
         .eq('battery_id', selectedBatteryId) 
-        .order('timestamp', { ascending: false }) 
-        .gte('timestamp', startDate.toISOString())
-        .limit(limitValue); 
+        .order('timestamp', { ascending: false });
+
+      let GAP_THRESHOLD_MS = 60 * 1000; // Default 1 menit
+
+      // 1. Logika Kueri Berdasarkan Filter
+      if (filterType === "last_500") {
+        query = query.limit(500);
+        GAP_THRESHOLD_MS = 60 * 1000;
+
+      } else if (filterType === "today") {
+        const start = new Date();
+        start.setHours(0, 0, 0, 0); // Mulai hari ini jam 00:00:00
+        query = query.gte('timestamp', start.toISOString()).limit(5000);
+        GAP_THRESHOLD_MS = 5 * 60 * 1000; // Gap 5 menit
+
+      } else if (filterType === "week") {
+        const start = new Date();
+        start.setDate(start.getDate() - 7);
+        query = query.gte('timestamp', start.toISOString()).limit(20000);
+        GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000; // Gap 2 jam
+
+      } else if (filterType === "specific_month" && specificMonth) {
+        const start = new Date(`${specificMonth}-01T00:00:00`);
+        const end = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59);
+        query = query.gte('timestamp', start.toISOString()).lte('timestamp', end.toISOString()).limit(50000);
+        GAP_THRESHOLD_MS = 2 * 24 * 60 * 60 * 1000; // Gap 2 hari
+
+      } else if (filterType === "specific_date" && specificDate) {
+        const start = new Date(`${specificDate}T00:00:00`);
+        const end = new Date(`${specificDate}T23:59:59`);
+        query = query.gte('timestamp', start.toISOString()).lte('timestamp', end.toISOString()).limit(5000);
+        GAP_THRESHOLD_MS = 5 * 60 * 1000; // Gap 5 menit
+      } else if (filterType === "specific_date" || filterType === "specific_month") {
+        // Jika belum memilih tanggal/bulan, batasi dulu agar tidak berat
+        query = query.limit(0); 
+      }
 
       const { data, error } = await query;
 
       if (data && !error) {
         const reversedData = data.reverse();
-        
         const grouped = {};
         
+        // 2. Downsampling / Grouping (opsional, disesuaikan)
         reversedData.forEach(item => {
           const d = new Date(item.timestamp);
           let key;
           
-          if (timeRange === "24H") {
-            key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`;
-          } else if (timeRange === "7D" || timeRange === "30D") {
-            key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+          if (filterType === "week" || filterType === "specific_month") {
+            key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; // Group harian
+          } else if (filterType === "today" || filterType === "specific_date") {
+            // Group per 10 menit (agar chart tidak terlalu padat jika data sangat banyak)
+            key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}-${Math.floor(d.getMinutes() / 10)}`; 
           } else {
             key = item.timestamp;
           }
@@ -106,13 +121,9 @@ export default function Analytic() {
         const downsampledData = Object.values(grouped);
         const paddedData = [];
         
-        let GAP_THRESHOLD_MS = 60 * 1000; 
-        if (timeRange === "24H") GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000; 
-        if (timeRange === "7D" || timeRange === "30D") GAP_THRESHOLD_MS = 2 * 24 * 60 * 60 * 1000; 
-
+        // 3. Menambahkan Padding Null jika data terputus
         for (let i = 0; i < downsampledData.length; i++) {
           const currentItem = downsampledData[i];
-          
           if (i > 0) {
             const prevItem = downsampledData[i - 1];
             const currentMs = new Date(currentItem.timestamp).getTime();
@@ -130,22 +141,14 @@ export default function Analytic() {
           paddedData.push(currentItem);
         }
 
+        // 4. Formatting akhir
         const formattedData = paddedData.map((item) => {
           const dateObj = new Date(item.timestamp);
           const unixTimeMs = dateObj.getTime(); 
-
-          let tooltipTimeString = ""; 
-          if (timeRange === "1M" || timeRange === "1H") {
-            tooltipTimeString = dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-          } else {
-            tooltipTimeString = dateObj.toLocaleString("id-ID", { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '');
-          }
+          let tooltipTimeString = dateObj.toLocaleString("id-ID", { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(',', '');
 
           if (item.total_voltage === null) {
-            return {
-              time: unixTimeMs, fullTime: tooltipTimeString,
-              voltage: null, current: null, temp: null, soc: null, soh: null
-            };
+            return { time: unixTimeMs, fullTime: tooltipTimeString, voltage: null, current: null, temp: null, soc: null, soh: null };
           }
 
           const temp1 = item.temperature_1 ?? 0;
@@ -174,14 +177,15 @@ export default function Analytic() {
     };
 
     fetchHistoryData();
-  }, [timeRange, selectedBatteryId]); // Akan fetch ulang jika waktu ATAU baterai diganti
+  }, [filterType, specificDate, specificMonth, selectedBatteryId]); // Update otomatis saat filter/tanggal/baterai berubah
 
   const handleLogout = () => router.push("/");
 
   const formatXAxis = (tickItem) => {
     const dateObj = new Date(tickItem);
-    if (timeRange === "1M") return dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    if (timeRange === "1H" || timeRange === "24H") return dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' });
+    if (filterType === "last_500" || filterType === "today" || filterType === "specific_date") {
+      return dateObj.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' });
+    }
     return dateObj.toLocaleDateString("id-ID", { day: '2-digit', month: '2-digit' });
   };
 
@@ -209,7 +213,7 @@ export default function Analytic() {
   return (
     <div className="flex min-h-screen bg-[#f4f7fe] text-slate-800 font-sans">
       
-      {/* SIDEBAR NAVIGASI KIRI */}
+      {/* SIDEBAR */}
       <aside className="w-64 bg-white flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20 border-r border-slate-100 sticky top-0 h-screen flex-shrink-0">
         <div className="p-8 flex items-center gap-3">
           <Image src="/logo-bh.png" alt="B-Hero Logo" width={36} height={36} className="object-contain" priority style={{ width: 'auto', height: 'auto' }}/>
@@ -217,17 +221,13 @@ export default function Analytic() {
         </div>
 
         <nav className="flex-1 px-4 flex flex-col gap-2">
+          {/* ... Navigation Links ... (Tetap sama) */}
           <Link href="/dashboard" className="flex items-center gap-4 text-slate-400 hover:text-[#333866] hover:bg-slate-50 px-5 py-3.5 rounded-2xl font-semibold transition-all">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
-            </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" /></svg>
             Dashboard
           </Link>
           <Link href="/analytic" className="flex items-center gap-4 bg-[#333866] text-white px-5 py-3.5 rounded-2xl font-bold transition-all shadow-md shadow-[#333866]/20">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-              <path fillRule="evenodd" d="M2.25 13.5a8.25 8.25 0 0 1 8.25-8.25.75.75 0 0 1 .75.75v6.75H18a.75.75 0 0 1 .75.75 8.25 8.25 0 0 1-16.5 0Z" clipRule="evenodd" />
-              <path fillRule="evenodd" d="M12.75 3a.75.75 0 0 1 .75-.75 8.25 8.25 0 0 1 8.25 8.25.75.75 0 0 1-.75.75h-7.5a.75.75 0 0 1-.75-.75V3Z" clipRule="evenodd" />
-            </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path fillRule="evenodd" d="M2.25 13.5a8.25 8.25 0 0 1 8.25-8.25.75.75 0 0 1 .75.75v6.75H18a.75.75 0 0 1 .75.75 8.25 8.25 0 0 1-16.5 0Z" clipRule="evenodd" /><path fillRule="evenodd" d="M12.75 3a.75.75 0 0 1 .75-.75 8.25 8.25 0 0 1 8.25 8.25.75.75 0 0 1-.75.75h-7.5a.75.75 0 0 1-.75-.75V3Z" clipRule="evenodd" /></svg>
             Analytic
           </Link>
           <Link href="/reports" className="flex items-center gap-4 text-slate-400 hover:text-[#333866] hover:bg-slate-50 px-5 py-3.5 rounded-2xl font-semibold transition-all">
@@ -258,9 +258,7 @@ export default function Analytic() {
           
           <div className="flex flex-col sm:flex-row items-center gap-3">
             
-            {/* ========================================================= */}
-            {/* UI: DROPDOWN PEMILIH BATERAI */}
-            {/* ========================================================= */}
+            {/* DROPDOWN PEMILIH BATERAI */}
             <div className="flex items-center gap-3 bg-white px-5 py-2.5 rounded-xl shadow-sm border border-slate-200 w-full sm:w-auto">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-emerald-500">
                 <path fillRule="evenodd" d="M14.615 1.595a.75.75 0 0 1 .359.852L12.982 9.75h7.268a.75.75 0 0 1 .548 1.262l-10.5 11.25a.75.75 0 0 1-1.272-.71l1.992-7.302H3.75a.75.75 0 0 1-.548-1.262l10.5-11.25a.75.75 0 0 1 .913-.143Z" clipRule="evenodd" />
@@ -284,18 +282,48 @@ export default function Analytic() {
               </div>
             </div>
 
-            {/* Filter Waktu */}
-            <div className="flex bg-white rounded-xl shadow-sm border border-slate-200 p-1 overflow-x-auto w-full sm:w-auto">
-              <button onClick={() => setTimeRange("1M")} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "1M" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}>1M</button>
-              <button onClick={() => setTimeRange("1H")} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "1H" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}>1H</button>
-              <button onClick={() => setTimeRange("24H")} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "24H" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}>24H</button>
-              <button onClick={() => setTimeRange("7D")} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "7D" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}>7D</button>
-              <button onClick={() => setTimeRange("30D")} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${timeRange === "30D" ? "bg-[#333866] text-white shadow-md" : "text-slate-500 hover:bg-slate-50"}`}>30D</button>
+            {/* DROPDOWN FILTER WAKTU (BARU) */}
+            <div className="relative w-full sm:w-auto">
+              <select 
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+                className="w-full appearance-none bg-white border border-slate-200 text-[#333866] px-5 py-3 pr-10 rounded-xl font-bold cursor-pointer hover:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all shadow-sm"
+              >
+                <option value="last_500">Last 500 Records</option>
+                <option value="today">Today</option>
+                <option value="week">Last Week</option>
+                <option value="specific_month">Specific Month</option>
+                <option value="specific_date">Specific Date</option>
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+              </div>
             </div>
+
+            {/* KONDISIONAL: MUNCUL KALENDER JIKA SPECIFIC DATE TERPILIH */}
+            {filterType === "specific_date" && (
+              <input 
+                type="date"
+                value={specificDate}
+                onChange={(e) => setSpecificDate(e.target.value)}
+                className="bg-white border border-slate-200 text-[#333866] px-4 py-3 rounded-xl font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all shadow-sm"
+              />
+            )}
+
+            {/* KONDISIONAL: MUNCUL PICKER BULAN JIKA SPECIFIC MONTH TERPILIH */}
+            {filterType === "specific_month" && (
+              <input 
+                type="month"
+                value={specificMonth}
+                onChange={(e) => setSpecificMonth(e.target.value)}
+                className="bg-white border border-slate-200 text-[#333866] px-4 py-3 rounded-xl font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 transition-all shadow-sm"
+              />
+            )}
 
           </div>
         </header>
 
+        {/* ... CHART WIDGETS BAWAH (Tetap Sama) ... */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           
           <div className="lg:col-span-2 bg-white rounded-[2rem] p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
